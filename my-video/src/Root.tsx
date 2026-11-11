@@ -2,6 +2,8 @@ import { Composition, Folder } from "remotion";
 import { HelloWorld } from "./HelloWorld";
 import { Logo } from "./HelloWorld/Logo";
 import { Title } from "./HelloWorld/Title";
+import { MadarekPromo } from "./Madarek";
+import { FPS, TOTAL_FRAMES } from "./Madarek/timeline";
 
 // Each <Composition> is an entry in the sidebar!
 
@@ -50,7 +52,15 @@ export const RemotionRoot: React.FC = () => {
           titleColor: "#000000",
         }}
       />
-
+      <Composition
+        // Vertical promo for Madarek Academy (silent draft)
+        id="MadarekPromo"
+        component={MadarekPromo}
+        durationInFrames={TOTAL_FRAMES}
+        fps={FPS}
+        width={1080}
+        height={1920}
+      />
     </>
   );
 };
