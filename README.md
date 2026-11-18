@@ -19,3 +19,6 @@ Remotion Agent Skills مثبّتة في `my-video/.agents/skills/` ومربوط�
 ```bash
 export REMOTION_BROWSER_EXECUTABLE=/path/to/chrome-headless-shell
 ```
+
+## نظام الورشة (`workshop/`)
+نظام استلام وتسليم سيارات لورشة الصيانة. التفاصيل في [`workshop/README.md`](workshop/README.md).
