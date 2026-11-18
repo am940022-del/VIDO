@@ -23,6 +23,19 @@ const Integrity = {
   },
 };
 
+/* تجميع العمل حسب القسم: كل قسم (السيرفس، الجير، المحرك…) يظهر وحده مع أعطاله */
+function groupWork(o) {
+  const order = App.settings.serviceTypes;
+  const groups = new Map();
+  (o.serviceTypes || []).forEach((t) => groups.set(t, []));
+  (o.complaints || []).forEach((c) => {
+    if (!groups.has(c.cat)) groups.set(c.cat, []);
+    groups.get(c.cat).push(c.text);
+  });
+  const rank = (t) => { const i = order.indexOf(t); return i < 0 ? 999 : i; };
+  return [...groups.entries()].sort((a, b) => rank(a[0]) - rank(b[0])).map(([type, items]) => ({ type, items }));
+}
+
 const plateKey = (p) => String(p || '').replace(/[\s\-_.]/g, '').toLowerCase();
 
 Views.intake = async (el) => {
@@ -42,7 +55,7 @@ Views.intake = async (el) => {
           <label class="field"><span>رقم الهاتف *</span><input name="phone" inputmode="tel" dir="ltr" required autocomplete="off"></label>
           <label class="field"><span>اسم الزبون *</span><input name="cname" required autocomplete="off"></label>
           <label class="field"><span>رقم اللوحة *</span><input name="plate" required autocomplete="off"></label>
-          <label class="field"><span>الشركة</span><input name="make" placeholder="تويوتا، كيا، هيونداي…" autocomplete="off"></label>
+          <label class="field"><span>الشركة المصنّعة</span><input name="make" placeholder="تويوتا، كيا، هيونداي…" autocomplete="off"></label>
           <label class="field"><span>الموديل</span><input name="model" placeholder="كامري، سوناتا…" autocomplete="off"></label>
           <label class="field"><span>سنة الصنع</span><input name="year" inputmode="numeric" dir="ltr" autocomplete="off"></label>
           <label class="field"><span>اللون</span><input name="color" autocomplete="off"></label>
@@ -51,8 +64,8 @@ Views.intake = async (el) => {
         <div id="history" class="mt-4"></div>
         <div class="grid-2 mt-4">
           <label class="field"><span>قراءة العداد (كم) *</span><input name="odometer" inputmode="numeric" dir="ltr" required></label>
-          <div class="field"><span>مستوى البانزين</span>
-            <div class="fuel-input"><input type="range" name="fuel" min="0" max="8" value="4" aria-label="مستوى البانزين"><output id="fuelOut">${C.fuelBars(4)}</output></div>
+          <div class="field"><span>مستوى البنزين</span>
+            <div class="fuel-input"><input type="range" name="fuel" min="0" max="8" value="4" aria-label="مستوى البنزين"><output id="fuelOut">${C.fuelBars(4)}</output></div>
           </div>
         </div>
       </section>
@@ -66,22 +79,22 @@ Views.intake = async (el) => {
 
       <section class="card">
         <h2>الأعطال والطلبات</h2>
-        <p class="muted">اختر من القائمة، أو أضف عطلاً غير موجود.</p>
+        <p class="muted">اختر القسم ثم العطل، أو أضف عطلًا غير موجود في القائمة. يُضاف القسم تلقائيًا إلى نوع العمل.</p>
         <div class="selected-box" id="cSel"></div>
         <div class="cat-tabs" id="catTabs" role="tablist">
           ${s.categories.map((c, i) => `<button type="button" role="tab" class="cat-tab ${i ? '' : 'active'}" data-i="${i}">${U.esc(c.name)}</button>`).join('')}
         </div>
         <div class="chips mt-3" id="catItems"></div>
         <div class="row gap-2 mt-4">
-          <input id="customC" placeholder="عطل آخر…" class="grow" autocomplete="off">
+          <input id="customC" class="grow" autocomplete="off" aria-label="عطل غير موجود في القائمة">
           <button type="button" class="btn btn-ghost" id="addC">إضافة</button>
         </div>
-        <label class="field mt-4"><span>ملاحظة قصيرة (اختياري)</span><input name="cnote" maxlength="200" placeholder="مثلاً: الصوت يطلع بس بالبرد" autocomplete="off"></label>
+        <label class="field mt-4"><span>ملاحظة قصيرة (اختياري)</span><input name="cnote" maxlength="200" placeholder="مثلًا: يظهر الصوت عند برودة الجو فقط" autocomplete="off"></label>
       </section>
 
       <section class="card">
         <h2>حالة السيارة الخارجية</h2>
-        <p class="muted">اضغط على مكان الخدش أو الطعجة في الرسم وصوّره.</p>
+        <p class="muted">اضغط على موضع الخدش أو الانبعاج في الرسم، ثم التقط صورة له.</p>
         <div class="damage-layout">
           <div id="car"></div>
           <div>
@@ -93,7 +106,7 @@ Views.intake = async (el) => {
 
       <section class="card">
         <h2>صور السيارة</h2>
-        <p class="muted">الجهات الأربع إلزامية. كل صورة ينطبع عليها التاريخ والوقت.</p>
+        <p class="muted">صور الجهات الأربع إلزامية، ويُطبع التاريخ والوقت على كل صورة.</p>
         <div class="photo-grid" id="photos">
           ${DEFAULTS.photoSlots.map((p, i) => C.photoInput('ph' + i, p + (i < 4 ? ' *' : ''))).join('')}
         </div>
@@ -108,7 +121,7 @@ Views.intake = async (el) => {
         <div class="chips" id="belong">
           ${DEFAULTS.belongings.map((t) => `<button type="button" class="chip" data-v="${U.esc(t)}">${U.esc(t)}</button>`).join('')}
         </div>
-        <label class="field mt-4"><span>ملاحظات على المحتويات</span><input name="bnote" placeholder="مثلاً: نظارة شمسية بالدرج" autocomplete="off"></label>
+        <label class="field mt-4"><span>ملاحظات على المحتويات</span><input name="bnote" placeholder="مثلًا: نظارة شمسية في الدرج" autocomplete="off"></label>
       </section>
 
       <section class="card">
@@ -117,7 +130,7 @@ Views.intake = async (el) => {
           <label class="field"><span>التكلفة التقديرية (${U.esc(s.currency)})</span><input name="estCost" inputmode="numeric" dir="ltr"></label>
           <label class="field"><span>موعد التسليم المتوقع</span><input name="estDate" type="date"></label>
           <label class="field"><span>العربون (${U.esc(s.currency)})</span><input name="deposit" inputmode="numeric" dir="ltr" value="0"></label>
-          <label class="field"><span>طريقة الدفع</span><select name="depMethod"><option>نقداً</option><option>تحويل</option><option>بطاقة</option></select></label>
+          <label class="field"><span>طريقة الدفع</span><select name="depMethod"><option>نقدًا</option><option>تحويل</option><option>بطاقة</option></select></label>
         </div>
         <fieldset class="field mt-4"><legend>القطع القديمة بعد التبديل</legend>
           <div class="row gap-4">
@@ -143,7 +156,7 @@ Views.intake = async (el) => {
   const f = el.querySelector('#f');
   const $ = (sel) => el.querySelector(sel);
 
-  /* البانزين */
+  /* البنزين */
   f.fuel.oninput = () => { $('#fuelOut').innerHTML = C.fuelBars(f.fuel.value); };
 
   /* شرائح قابلة للتبديل */
@@ -163,8 +176,16 @@ Views.intake = async (el) => {
 
   /* الأعطال */
   let catIdx = 0;
+  /* اختيار عطل يضيف قسمه إلى نوع العمل تلقائيًا */
+  function ensureType(cat) {
+    if (!s.serviceTypes.includes(cat) || d.serviceTypes.includes(cat)) return;
+    d.serviceTypes.push(cat);
+    const chip = [...el.querySelectorAll('#stypes .chip')].find((b) => b.dataset.v === cat);
+    if (chip) { chip.classList.add('on'); chip.setAttribute('aria-pressed', 'true'); }
+  }
   function drawCat() {
     const c = s.categories[catIdx];
+    $('#customC').placeholder = `عطل آخر في قسم «${c.name}»…`;
     $('#catItems').innerHTML = c.items
       .map((t) => `<button type="button" class="chip ${d.complaints.some((x) => x.text === t && x.cat === c.name) ? 'on' : ''}" data-v="${U.esc(t)}">${U.esc(t)}</button>`)
       .join('');
@@ -172,7 +193,7 @@ Views.intake = async (el) => {
   function drawSel() {
     $('#cSel').innerHTML = d.complaints.length
       ? d.complaints.map((c, i) => `<span class="chip on removable" data-i="${i}">${U.esc(c.text)} <small>${U.esc(c.cat)}</small><button type="button" aria-label="حذف">×</button></span>`).join('')
-      : '<span class="muted">ما اخترت أي عطل بعد</span>';
+      : '<span class="muted">لم يُختر أي عطل بعد.</span>';
   }
   $('#catTabs').onclick = (e) => {
     const b = e.target.closest('.cat-tab');
@@ -186,7 +207,7 @@ Views.intake = async (el) => {
     if (!b) return;
     const cat = s.categories[catIdx].name;
     const i = d.complaints.findIndex((x) => x.text === b.dataset.v && x.cat === cat);
-    if (i >= 0) d.complaints.splice(i, 1); else d.complaints.push({ cat, text: b.dataset.v });
+    if (i >= 0) d.complaints.splice(i, 1); else { d.complaints.push({ cat, text: b.dataset.v }); ensureType(cat); }
     drawCat(); drawSel();
   };
   $('#cSel').onclick = (e) => {
@@ -198,7 +219,9 @@ Views.intake = async (el) => {
   const addCustom = () => {
     const v = $('#customC').value.trim();
     if (!v) return;
-    d.complaints.push({ cat: 'أخرى', text: v });
+    const cat = s.categories[catIdx].name;
+    if (!d.complaints.some((x) => x.text === v && x.cat === cat)) d.complaints.push({ cat, text: v });
+    ensureType(cat);
     $('#customC').value = '';
     drawSel();
   };
@@ -219,7 +242,7 @@ Views.intake = async (el) => {
     if (!f.phone.value) f.phone.value = last.customer.phone;
     const open = prev.find((o) => o.status !== 'delivered');
     $('#history').innerHTML = `<div class="banner ${open ? 'banner-warn' : 'banner-info'}">
-      <span>${open ? `انتبه: هذه السيارة موجودة حالياً داخل الورشة (أمر <bdi>${U.esc(open.no)}</bdi>).` : `هذه السيارة زارت الورشة ${prev.length} مرة، آخرها ${U.fmtDate(last.createdAt, false)}: ${U.esc(last.complaints.map((c) => c.text).slice(0, 3).join('، '))}.`}</span>
+      <span>${open ? `تنبيه: هذه السيارة موجودة حاليًا داخل الورشة (أمر <bdi>${U.esc(open.no)}</bdi>).` : `زارت هذه السيارة الورشة ${U.times(prev.length)}، آخرها بتاريخ ${U.fmtDate(last.createdAt, false)}: ${U.esc(last.complaints.map((c) => c.text).slice(0, 3).join('، '))}.`}</span>
       <a class="btn btn-sm btn-ghost" href="#/order/${encodeURIComponent((open || last).id)}" target="_blank">عرض</a></div>`;
   }
   async function lookupPhone() {
@@ -241,7 +264,7 @@ Views.intake = async (el) => {
           <span class="grow"><strong>${typeName(x.type)}</strong>${x.note ? ' — ' + U.esc(x.note) : ''}</span>
           ${x.photo ? `<img src="${x.photo}" alt="" class="mini">` : '<span class="muted sm">بدون صورة</span>'}
           <button type="button" class="btn btn-ghost btn-sm" data-i="${i}">تعديل</button></li>`).join('')
-      : '<li class="muted">ما مسجّل أي ضرر.</li>';
+      : '<li class="muted">لم يُسجَّل أي ضرر.</li>';
     $('#noDmgWrap').hidden = d.damages.length > 0;
   }
   async function editDamage(i, pos) {
@@ -250,7 +273,7 @@ Views.intake = async (el) => {
     let photo = cur.photo;
     const dlg = await C.modal(isNew ? 'تسجيل ضرر' : `الضرر رقم ${i + 1}`, `
       <label class="field"><span>النوع</span><select name="type">${typeOptions(cur.type)}</select></label>
-      <label class="field mt-3"><span>وصف (اختياري)</span><input name="note" value="${U.esc(cur.note)}" placeholder="مثلاً: باب السائق، خدش 10 سم"></label>
+      <label class="field mt-3"><span>وصف (اختياري)</span><input name="note" value="${U.esc(cur.note)}" placeholder="مثلًا: باب السائق، خدش بطول 10 سم"></label>
       <div class="mt-3">${C.photoInput('dmgPh', 'صورة الضرر')}</div>
       ${isNew ? '' : '<label class="check mt-3"><input type="checkbox" name="remove"> <span>حذف هذا الضرر</span></label>'}`,
     {
@@ -260,7 +283,7 @@ Views.intake = async (el) => {
         if (photo) prev.innerHTML = `<img src="${photo}" alt="">`;
         inp.onchange = async () => {
           if (!inp.files[0]) return;
-          prev.innerHTML = '<span class="muted sm">جاري المعالجة…</span>';
+          prev.innerHTML = '<span class="muted sm">جارٍ المعالجة…</span>';
           photo = await U.processPhoto(inp.files[0], stamp('ضرر'));
           prev.innerHTML = `<img src="${photo}" alt="">`;
         };
@@ -284,7 +307,7 @@ Views.intake = async (el) => {
     inp.onchange = async () => {
       if (!inp.files[0]) return;
       const prev = inp.parentElement.querySelector('.photo-preview');
-      prev.innerHTML = '<span class="muted sm">جاري المعالجة…</span>';
+      prev.innerHTML = '<span class="muted sm">جارٍ المعالجة…</span>';
       d.photos[label] = await U.processPhoto(inp.files[0], stamp(label));
       prev.innerHTML = `<img src="${d.photos[label]}" alt="">`;
       inp.parentElement.classList.add('has');
@@ -314,21 +337,21 @@ Views.intake = async (el) => {
     if (!v('plate')) errs.push('رقم اللوحة');
     if (!v('odometer')) errs.push('قراءة العداد');
     if (!d.complaints.length && !d.serviceTypes.length) errs.push('نوع العمل أو عطل واحد على الأقل');
-    if (!d.damages.length && !f.noDamage.checked) errs.push('سجّل الأضرار أو أشّر «لا توجد أضرار»');
+    if (!d.damages.length && !f.noDamage.checked) errs.push('سجّل الأضرار أو اختر «لا توجد أضرار ظاهرة»');
     const missing = DEFAULTS.photoSlots.slice(0, 4).filter((p) => !d.photos[p]);
     if (missing.length) errs.push('صور: ' + missing.join('، '));
     if (!f.accept.checked) errs.push('موافقة الزبون على الشروط');
     if (sig.isEmpty()) errs.push('توقيع الزبون');
     if (errs.length) {
-      await C.modal('باقي معلومات ناقصة', `<ul class="err-list">${errs.map((x) => `<li>${U.esc(x)}</li>`).join('')}</ul>`, { okText: 'تمام', cancelText: '' });
+      await C.modal('توجد معلومات ناقصة', `<ul class="err-list">${errs.map((x) => `<li>${U.esc(x)}</li>`).join('')}</ul>`, { okText: 'حسنًا', cancelText: '' });
       return;
     }
-    const ok = await C.confirm('قفل الاستلام', 'بعد الحفظ ما يمكن تعديل بيانات الاستلام (الصور والأضرار والتوقيع). أي إضافة لاحقة تنسجل كملاحظة باسمك. متأكد؟', 'احفظ واقفل');
+    const ok = await C.confirm('قفل الاستلام', 'بعد الحفظ لا يمكن تعديل بيانات الاستلام (الصور والأضرار والتوقيع)، وأي إضافة لاحقة تُسجَّل ملاحظةً باسمك. هل تريد المتابعة؟', 'حفظ وقفل');
     if (!ok) return;
 
     const btn = $('#save');
     btn.disabled = true;
-    btn.textContent = 'جاري الحفظ…';
+    btn.textContent = 'جارٍ الحفظ…';
     try {
       const receivedBy = f.receivedBy.value;
       const order = {

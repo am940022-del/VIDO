@@ -33,7 +33,7 @@ const Print = (() => {
       ${row('اللون', U.esc(v.color))}
       ${row('رقم الشاصي', v.vin ? `<bdi>${U.esc(v.vin)}</bdi>` : '')}
       ${row('العداد عند الاستلام', `<bdi>${Number(v.odometer).toLocaleString('en-US')} كم</bdi>`)}
-      ${row('مستوى البانزين', C.fuelText(v.fuel))}
+      ${row('مستوى البنزين', C.fuelText(v.fuel))}
     </table>`;
   }
 
@@ -72,8 +72,9 @@ const Print = (() => {
         ${vehicleTable(o)}
 
         <h3 class="p-h">العمل المطلوب</h3>
-        <p><strong>نوع العمل:</strong> ${U.esc((o.serviceTypes || []).join('، ') || '—')}</p>
-        <p><strong>الأعطال:</strong> ${U.esc(o.complaints.map((c) => c.text).join('، ') || '—')}</p>
+        <table class="p-table"><thead><tr><th style="width:28%">القسم</th><th>الأعطال والطلبات</th></tr></thead><tbody>
+          ${groupWork(o).map((g) => `<tr><td><strong>${U.esc(g.type)}</strong></td><td>${U.esc(g.items.join('، ') || '—')}</td></tr>`).join('')}
+        </tbody></table>
         ${o.complaintNote ? `<p><strong>ملاحظة:</strong> ${U.esc(o.complaintNote)}</p>` : ''}
 
         <h3 class="p-h">حالة السيارة الخارجية</h3>
@@ -106,7 +107,7 @@ const Print = (() => {
           ${sigBox('توقيع الزبون', o.intakeSignature, o.customer.name)}
           ${sigBox('العامل المستلم', '', o.receivedByName)}
         </div>
-        <div class="p-verify">رمز التحقق: <bdi>${U.shortCode(o.intakeHash)}</bdi> · وُقّع إلكترونياً بتاريخ ${U.fmtDate(o.createdAt)}</div>
+        <div class="p-verify">رمز التحقق: <bdi>${U.shortCode(o.intakeHash)}</bdi> · وُقّع إلكترونيًا بتاريخ ${U.fmtDate(o.createdAt)}</div>
       </div>
 
       <div class="p-page p-break">
@@ -141,7 +142,7 @@ const Print = (() => {
         <h3 class="p-h">الحساب</h3>
         <table class="p-table p-2col">
           ${row('المبلغ النهائي', `<strong>${U.fmtMoney(dl.total, cur)}</strong>`)}
-          ${dl.storageFee ? row('منها أجرة أرضية', `${U.fmtMoney(dl.storageFee, cur)} (${dl.storageDays} يوم)`) : ''}
+          ${dl.storageFee ? row('يشمل أجرة أرضية', `${U.fmtMoney(dl.storageFee, cur)} (تأخير ${U.days(dl.storageDays)})`) : ''}
           ${row('العربون', U.fmtMoney(dl.deposit, cur))}
           ${row('المدفوع عند التسليم', `${U.fmtMoney(dl.paid, cur)} (${U.esc(dl.method)})`)}
           ${row('المتبقي على الزبون', `<strong>${U.fmtMoney(dl.remaining, cur)}</strong>`)}
@@ -150,15 +151,15 @@ const Print = (() => {
         <table class="p-table p-2col mt-2">
           ${row('العداد عند التسليم', `<bdi>${Number(dl.odometer).toLocaleString('en-US')} كم</bdi>`)}
           ${row('تاريخ التسليم', U.fmtDate(dl.at))}
-          ${row('القطع القديمة', o.oldParts === 'return' ? (dl.oldPartsReturned ? 'سُلّمت للزبون' : 'لم تُسلَّم') : 'أُتلفت حسب طلب الزبون')}
+          ${row('القطع القديمة', o.oldParts === 'return' ? (dl.oldPartsReturned ? 'سُلّمت للزبون' : 'لم تُسلَّم') : 'أُتلفت بناءً على طلب الزبون')}
           ${row('ملاحظات الزبون', U.esc(dl.customerNote))}
-          ${s.warrantyDays ? row('الضمان على أجور العمل', `${s.warrantyDays} يوماً حتى ${U.fmtDate(dl.at + s.warrantyDays * 86400000, false)}`) : ''}
+          ${s.warrantyDays ? row('الضمان على أجور العمل', `${U.days(s.warrantyDays)} (حتى ${U.fmtDate(dl.at + s.warrantyDays * 86400000, false)})`) : ''}
         </table>
 
         <p class="p-ack">أقرّ أنا الموقّع أدناه باستلام سيارتي رقم <strong>${U.esc(o.vehicle.plate)}</strong> بعد فحصها، وبحالة مطابقة لحالتها عند التسليم للورشة مع الأعمال المذكورة أعلاه، واستلام جميع محتوياتها.</p>
 
         <div class="p-sigs">
-          ${sigBox('توقيع الزبون (استلم سيارته)', dl.signature, o.customer.name)}
+          ${sigBox('توقيع الزبون (استلام السيارة)', dl.signature, o.customer.name)}
           ${sigBox('العامل المسلّم', '', dl.byName)}
         </div>
         <div class="p-verify">رمز التحقق: <bdi>${U.shortCode(dl.hash)}</bdi> · مرتبط بعقد الاستلام <bdi>${U.shortCode(o.intakeHash)}</bdi></div>

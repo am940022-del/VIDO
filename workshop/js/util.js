@@ -24,6 +24,18 @@ const U = (() => {
     return `${v.toLocaleString('en-US')} ${currency || ''}`.trim();
   }
 
+  /* صيغ العدد الصحيحة: يوم واحد، يومان، 3 أيام، 11 يومًا */
+  function countWord(n, one, two, few, many) {
+    n = Number(n) || 0;
+    if (n === 1) return one;
+    if (n === 2) return two;
+    const r = n % 100;
+    if (r >= 3 && r <= 10) return `${n} ${few}`;
+    return `${n} ${many}`;
+  }
+  const days = (n) => (Number(n) === 0 ? 'صفر يوم' : countWord(n, 'يوم واحد', 'يومان', 'أيام', 'يومًا'));
+  const times = (n) => countWord(n, 'مرة واحدة', 'مرتين', 'مرات', 'مرة');
+
   function daysBetween(a, b = Date.now()) {
     return Math.floor((b - a) / 86400000);
   }
@@ -195,7 +207,7 @@ const U = (() => {
   };
 
   return {
-    esc, pad, fmtDate, fmtMoney, daysBetween, uid, canonical, sha256, hashObj, shortCode,
+    esc, pad, fmtDate, days, times, fmtMoney, daysBetween, uid, canonical, sha256, hashObj, shortCode,
     processPhoto, readFileAsDataURL, loadImage, download, toast, ss,
   };
 })();

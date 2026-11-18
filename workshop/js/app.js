@@ -46,9 +46,9 @@ const App = {
     const s = this.settings;
     return s.terms.map((t) =>
       t
-        .replace(/\{أيام_الاستلام\}/g, s.storageDays)
+        .replace(/\{أيام_الاستلام\}/g, U.days(s.storageDays))
         .replace(/\{أجرة_الأرضية\}/g, U.fmtMoney(s.storageFee, s.currency))
-        .replace(/\{أيام_الضمان\}/g, s.warrantyDays)
+        .replace(/\{أيام_الضمان\}/g, U.days(s.warrantyDays))
     );
   },
 
@@ -73,7 +73,7 @@ const App = {
 
   async show(v, view, params) {
     this.renderHeader(v);
-    view.innerHTML = '<div class="loading">جاري التحميل…</div>';
+    view.innerHTML = '<div class="loading">جارٍ التحميل…</div>';
     window.scrollTo(0, 0);
     try {
       await Views[v](view, ...params);
@@ -129,7 +129,7 @@ const App = {
 Views.setup = async (el) => {
   el.innerHTML = `
     <section class="card narrow">
-      <h1>أهلاً بك في نظام الورشة</h1>
+      <h1>أهلًا بك في نظام الورشة</h1>
       <p class="muted">خطوة واحدة قبل البدء: معلومات الورشة وحساب المدير.</p>
       <form id="f" class="stack mt-5">
         <label class="field"><span>اسم الورشة *</span><input name="name" required></label>
@@ -160,8 +160,8 @@ Views.setup = async (el) => {
 Views.login = async (el) => {
   el.innerHTML = `
     <section class="card narrow">
-      <h1>منو يشتغل هسه؟</h1>
-      <p class="muted">اختر اسمك حتى تنسجل كل عملية باسمك.</p>
+      <h1>اختر المستخدم</h1>
+      <p class="muted">اختر اسمك لتُسجَّل كل عملية باسمك.</p>
       <div class="worker-grid mt-5">
         ${App.workers.map((w) => `<button class="worker-btn" data-id="${U.esc(w.id)}"><strong>${U.esc(w.name)}</strong><span>${DEFAULTS.roles[w.role] || ''}</span></button>`).join('')}
       </div>

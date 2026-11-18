@@ -17,7 +17,7 @@ Views.home = async (el) => {
 
   el.innerHTML = `
     ${needBackup && App.isManager() ? `<div class="banner banner-warn">
-      <span>${backupAge === null ? 'ما سويت نسخة احتياطية لحد الآن.' : `آخر نسخة احتياطية قبل ${backupAge} يوم.`} البيانات محفوظة على هذا الجهاز فقط.</span>
+      <span>${backupAge === null ? 'لم تُنشأ أي نسخة احتياطية حتى الآن.' : `أُنشئت آخر نسخة احتياطية قبل ${U.days(backupAge)}.`} البيانات محفوظة على هذا الجهاز فقط.</span>
       <a class="btn btn-sm btn-primary" href="#/settings">نسخة احتياطية</a></div>` : ''}
     <div class="page-head">
       <h1>السيارات</h1>
@@ -54,7 +54,7 @@ Views.home = async (el) => {
       return hay.includes(term);
     });
     if (!rows.length) {
-      list.innerHTML = `<div class="empty">${orders.length ? 'ماكو نتائج.' : 'ما استلمت أي سيارة بعد. اضغط «استلام سيارة» للبدء.'}</div>`;
+      list.innerHTML = `<div class="empty">${orders.length ? 'لا توجد نتائج.' : 'لم تُستلم أي سيارة بعد. اضغط «استلام سيارة» للبدء.'}</div>`;
       return;
     }
     list.innerHTML = rows
@@ -71,8 +71,8 @@ Views.home = async (el) => {
           </div>
           <div class="or-side">
             <span class="status ${st.cls}">${st.name}</span>
-            <span class="muted sm">${o.status === 'delivered' ? 'سُلّمت ' + U.fmtDate(o.delivery && o.delivery.at, false) : days === 0 ? 'دخلت اليوم' : `منذ ${days} يوم`}</span>
-            ${late ? `<span class="late-note">متأخرة ${lateDays} يوم · أرضية ${U.fmtMoney(lateDays * s.storageFee, s.currency)}</span>` : ''}
+            <span class="muted sm">${o.status === 'delivered' ? 'سُلّمت ' + U.fmtDate(o.delivery && o.delivery.at, false) : days === 0 ? 'دخلت اليوم' : `منذ ${U.days(days)}`}</span>
+            ${late ? `<span class="late-note">متأخرة ${U.days(lateDays)} · أجرة الأرضية ${U.fmtMoney(lateDays * s.storageFee, s.currency)}</span>` : ''}
           </div>
         </a>`;
       })

@@ -1,4 +1,4 @@
-/* مكوّنات الواجهة: لوحة التوقيع، رسم السيارة، مؤشر البانزين، النوافذ المنبثقة */
+/* مكوّنات الواجهة: لوحة التوقيع، رسم السيارة، مؤشر البنزين، النوافذ المنبثقة */
 'use strict';
 
 const C = (() => {
@@ -145,12 +145,12 @@ const C = (() => {
     return { render };
   }
 
-  /* ---------- مؤشر البانزين ---------- */
-  const FUEL_LABELS = ['فارغ', '1/8', '1/4', '3/8', 'نص', '5/8', '3/4', '7/8', 'فل'];
+  /* ---------- مؤشر البنزين ---------- */
+  const FUEL_LABELS = ['فارغ', '1/8', '1/4', '3/8', 'النصف', '5/8', '3/4', '7/8', 'ممتلئ'];
   function fuelText(v) { return FUEL_LABELS[Number(v) || 0]; }
   function fuelBars(v) {
     const n = Number(v) || 0;
-    let s = '<span class="fuel-bars" aria-label="مستوى البانزين ' + fuelText(n) + '">';
+    let s = '<span class="fuel-bars" aria-label="مستوى البنزين ' + fuelText(n) + '">';
     for (let i = 1; i <= 8; i++) s += `<i class="${i <= n ? 'on' : ''}"></i>`;
     return s + `</span> <span>${fuelText(n)}</span>`;
   }

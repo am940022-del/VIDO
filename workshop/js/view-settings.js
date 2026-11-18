@@ -22,7 +22,7 @@ Views.settings = async (el) => {
             <label class="field"><span>مدة الضمان على أجور العمل (أيام)</span><input name="warrantyDays" inputmode="numeric" dir="ltr" value="${s.warrantyDays}"></label>
             <div class="field"><span>الشعار</span>
               <div class="row gap-3">
-                <span class="logo-prev">${s.logo ? `<img src="${s.logo}" alt="الشعار">` : '<span class="muted sm">بدون</span>'}</span>
+                <span class="logo-prev">${s.logo ? `<img src="${s.logo}" alt="الشعار">` : '<span class="muted sm">لا يوجد</span>'}</span>
                 <label class="btn btn-ghost btn-sm" for="logo">اختيار صورة<input type="file" id="logo" accept="image/*" hidden></label>
                 ${s.logo ? '<button type="button" class="btn btn-ghost btn-sm" id="rmLogo">إزالة</button>' : ''}
               </div>
@@ -45,7 +45,7 @@ Views.settings = async (el) => {
 
       <section class="card">
         <h2>الأعطال الجاهزة</h2>
-        <p class="muted">كل سطر = كلمة. تقدر تضيف أقسام جديدة.</p>
+        <p class="muted">كل قسم هو نوع عمل مستقل. اكتب كل عطل في سطر مستقل، ويمكنك إضافة أقسام جديدة.</p>
         <div id="cats" class="cat-edit"></div>
         <div class="row gap-3 mt-4">
           <button class="btn btn-ghost" id="addCat">+ قسم جديد</button>
@@ -58,18 +58,18 @@ Views.settings = async (el) => {
 
       <section class="card">
         <h2>الشروط والأحكام</h2>
-        <p class="muted">كل سطر = بند. تقدر تستخدم: <bdi>{أيام_الاستلام}</bdi> و<bdi>{أجرة_الأرضية}</bdi> و<bdi>{أيام_الضمان}</bdi>. التعديل يطبّق على الاستلامات الجديدة فقط؛ القديمة محفوظة بنصّها الأصلي.</p>
+        <p class="muted">اكتب كل بند في سطر مستقل. يمكنك استخدام: <bdi>{أيام_الاستلام}</bdi> و<bdi>{أجرة_الأرضية}</bdi> و<bdi>{أيام_الضمان}</bdi>. يُطبَّق التعديل على الاستلامات الجديدة فقط، وتبقى العقود السابقة بنصّها الأصلي.</p>
         <textarea id="terms" rows="10" class="mt-3">${U.esc(s.terms.join('\n'))}</textarea>
         <div class="row gap-3 mt-3">
           <button class="btn btn-primary" id="saveTerms">حفظ الشروط</button>
           <button class="btn btn-ghost" id="resetTerms">استرجاع الافتراضي</button>
         </div>
-        <p class="muted sm mt-3">ننصح بعرض الشروط على محامٍ محلي حتى تكون ملزمة قانونياً ببلدك.</p>
+        <p class="muted sm mt-3">يُنصح بعرض الشروط على محامٍ محلي للتأكد من أنها ملزمة قانونيًا في بلدك.</p>
       </section>
 
       <section class="card">
         <h2>النسخ الاحتياطي</h2>
-        <p class="muted">كل البيانات محفوظة على هذا الجهاز. سوّي نسخة احتياطية أسبوعياً على الأقل واحفظها بمكان ثاني (فلاش، إيميل، درايف).</p>
+        <p class="muted">جميع البيانات محفوظة على هذا الجهاز فقط. أنشئ نسخة احتياطية أسبوعيًا على الأقل، واحفظها في مكان آخر (ذاكرة USB، بريد إلكتروني، تخزين سحابي).</p>
         <p>آخر نسخة: <strong>${s.backupAt ? U.fmtDate(s.backupAt) : 'لا يوجد'}</strong></p>
         <div class="row gap-3 wrap mt-3">
           <button class="btn btn-primary" id="exp">تنزيل نسخة احتياطية</button>
@@ -89,7 +89,7 @@ Views.settings = async (el) => {
     logo = await U.processPhoto(file, [], 400);
     $('.logo-prev').innerHTML = `<img src="${logo}" alt="الشعار">`;
   };
-  if ($('#rmLogo')) $('#rmLogo').onclick = () => { logo = ''; $('.logo-prev').innerHTML = '<span class="muted sm">بدون</span>'; };
+  if ($('#rmLogo')) $('#rmLogo').onclick = () => { logo = ''; $('.logo-prev').innerHTML = '<span class="muted sm">لا يوجد</span>'; };
   $('#fShop').onsubmit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -113,8 +113,8 @@ Views.settings = async (el) => {
     const dlg = await C.modal(isNew ? 'إضافة عامل' : 'تعديل عامل', `
       <label class="field"><span>الاسم *</span><input name="n" value="${U.esc(w.name)}"></label>
       <label class="field mt-3"><span>الدور</span><select name="r" ${isSelf ? 'disabled' : ''}>${Object.entries(DEFAULTS.roles).map(([k, v]) => `<option value="${k}" ${w.role === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-      <label class="field mt-3"><span>رمز الدخول (اتركه فارغاً بدون رمز)</span><input name="p" type="password" inputmode="numeric" dir="ltr" value="${U.esc(w.pin)}" autocomplete="new-password"></label>
-      ${isNew || isSelf ? '' : `<label class="check mt-3"><input type="checkbox" name="a" ${w.active === false ? '' : 'checked'}> <span>فعّال (العامل المتوقف يبقى اسمه بالسجلات القديمة)</span></label>`}`,
+      <label class="field mt-3"><span>رمز الدخول (اتركه فارغًا إن لم ترغب في رمز)</span><input name="p" type="password" inputmode="numeric" dir="ltr" value="${U.esc(w.pin)}" autocomplete="new-password"></label>
+      ${isNew || isSelf ? '' : `<label class="check mt-3"><input type="checkbox" name="a" ${w.active === false ? '' : 'checked'}> <span>فعّال (يبقى اسم العامل الموقوف في السجلات السابقة)</span></label>`}`,
     { onOpen: ({ setValidator }) => setValidator((m) => (m.querySelector('[name=n]').value.trim() ? null : 'الاسم مطلوب')) });
     if (!dlg) return;
     w.name = dlg.querySelector('[name=n]').value.trim();
@@ -189,7 +189,7 @@ Views.settings = async (el) => {
     if (!file) return;
     try {
       const data = JSON.parse(await file.text());
-      if (!(await C.confirm('استرجاع نسخة', `راح تنمسح كل البيانات الحالية وتنستبدل بالنسخة (${(data.orders || []).length} أمر عمل). متأكد؟`, 'استرجاع', true))) return;
+      if (!(await C.confirm('استرجاع نسخة', `ستُحذف جميع البيانات الحالية وتُستبدل ببيانات النسخة (عدد أوامر العمل: ${(data.orders || []).length}). هل أنت متأكد؟`, 'استرجاع', true))) return;
       await DB.importAll(data);
       await App.loadSettings();
       App.user = App.workers.find((w) => w.id === App.user.id) || null;
@@ -214,7 +214,7 @@ Views.audit = async (el) => {
   el.innerHTML = `
     <div class="page-head"><h1>سجل العمليات</h1></div>
     <div class="banner ${v.broken.length ? 'banner-bad' : 'banner-info'}">
-      ${v.broken.length ? `⚠ السجل فيه ${v.broken.length} قيد ما يطابق البصمة (أرقام: ${v.broken.slice(0, 10).join('، ')}). يعني تم التلاعب بالبيانات خارج النظام.` : `✓ السجل سليم — ${v.count} عملية، كل وحدة مربوطة بالي قبلها.`}
+      ${v.broken.length ? `⚠ يحتوي السجل على قيود لا تطابق بصمتها (عددها ${v.broken.length}، أرقامها: ${v.broken.slice(0, 10).join('، ')})، ما يعني أن البيانات عُدِّلت من خارج النظام.` : `✓ السجل سليم: عدد العمليات ${v.count}، وكل عملية مرتبطة بالعملية السابقة لها.`}
     </div>
     <div class="card mt-4">
       <table class="table">

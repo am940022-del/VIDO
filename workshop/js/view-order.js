@@ -4,8 +4,8 @@
 function integrityBadge(ok, label) {
   if (ok === null || ok === undefined) return '';
   return ok
-    ? `<span class="badge badge-ok" title="البصمة مطابقة">✓ ${label} سليم</span>`
-    : `<span class="badge badge-bad" title="البيانات لا تطابق البصمة المحفوظة">⚠ ${label} تم التلاعب به</span>`;
+    ? `<span class="badge badge-ok" title="البصمة مطابقة">✓ ${label} سليمة</span>`
+    : `<span class="badge badge-bad" title="البيانات لا تطابق البصمة المحفوظة">⚠ ${label} معدَّلة من خارج النظام</span>`;
 }
 
 function infoTable(rows) {
@@ -41,9 +41,9 @@ Views.order = async (el, id, action) => {
         <div class="row gap-2 wrap mt-2">
           <span class="muted">أمر رقم <bdi>${U.esc(o.no)}</bdi> · ${U.fmtDate(o.createdAt)}</span>
           <span class="status ${st.cls}">${st.name}</span>
-          ${integrityBadge(chk.intake, 'الاستلام')}
-          ${integrityBadge(chk.delivery, 'التسليم')}
-          ${chk.approvals.includes(false) ? integrityBadge(false, 'موافقة إضافية') : ''}
+          ${integrityBadge(chk.intake, 'بيانات الاستلام')}
+          ${integrityBadge(chk.delivery, 'بيانات التسليم')}
+          ${chk.approvals.includes(false) ? integrityBadge(false, 'بيانات الموافقات الإضافية') : ''}
         </div>
       </div>
       <a href="#/" class="btn btn-ghost">رجوع</a>
@@ -69,16 +69,18 @@ Views.order = async (el, id, action) => {
           ['اللون', U.esc(o.vehicle.color)],
           ['رقم الشاصي', o.vehicle.vin ? `<bdi>${U.esc(o.vehicle.vin)}</bdi>` : ''],
           ['العداد عند الاستلام', `<bdi>${Number(o.vehicle.odometer).toLocaleString('en-US')} كم</bdi>`],
-          ['البانزين', C.fuelBars(o.vehicle.fuel)],
-          ['استلمها', U.esc(o.receivedByName)],
+          ['البنزين', C.fuelBars(o.vehicle.fuel)],
+          ['المستلِم', U.esc(o.receivedByName)],
           ['الفني', o.technician ? U.esc(App.workerName(o.technician) !== '—' ? App.workerName(o.technician) : o.technicianName) : ''],
         ])}
       </section>
 
       <section class="card">
         <h2>العمل المطلوب</h2>
-        <div class="chips-inline">${(o.serviceTypes || []).map((t) => `<span class="tag">${U.esc(t)}</span>`).join('')}</div>
-        <ul class="complaints mt-3">${o.complaints.map((c) => `<li>${U.esc(c.text)} <span class="muted sm">${U.esc(c.cat)}</span></li>`).join('') || '<li class="muted">—</li>'}</ul>
+        <div class="work-groups">${groupWork(o).map((g) => `<div class="work-group">
+          <span class="tag">${U.esc(g.type)}</span>
+          ${g.items.length ? `<ul class="complaints">${g.items.map((t) => `<li>${U.esc(t)}</li>`).join('')}</ul>` : ''}
+        </div>`).join('') || '<p class="muted">—</p>'}</div>
         ${o.complaintNote ? `<p class="mt-3"><strong>ملاحظة:</strong> ${U.esc(o.complaintNote)}</p>` : ''}
       </section>
 
@@ -136,7 +138,7 @@ Views.order = async (el, id, action) => {
         <h2>التسليم</h2>
         ${infoTable([
           ['تاريخ التسليم', U.fmtDate(o.delivery.at)],
-          ['سلّمها', U.esc(o.delivery.byName)],
+          ['المسلِّم', U.esc(o.delivery.byName)],
           ['العداد عند التسليم', `<bdi>${Number(o.delivery.odometer).toLocaleString('en-US')} كم</bdi>`],
           ['العمل المنجز', U.esc(o.delivery.workDone)],
           ['القطع القديمة', o.oldParts === 'return' ? (o.delivery.oldPartsReturned ? 'سُلّمت للزبون' : 'لم تُسلَّم') : 'أُتلفت'],
@@ -179,8 +181,8 @@ Views.order = async (el, id, action) => {
   };
 
   if ($('#aReady')) $('#aReady').onclick = async () => {
-    const dlg = await C.modal('السيارة جاهزة', `<p>راح يبدأ حساب مدة الاستلام (${s.storageDays} أيام) من هسه. بلّغ الزبون.</p>
-      <label class="field mt-3"><span>ملاحظة (اختياري)</span><input name="n" placeholder="مثلاً: تم إبلاغ الزبون بالهاتف"></label>`, { okText: 'تأكيد' });
+    const dlg = await C.modal('السيارة جاهزة', `<p>سيبدأ احتساب مهلة الاستلام (${U.days(s.storageDays)}) من الآن. يُرجى إبلاغ الزبون.</p>
+      <label class="field mt-3"><span>ملاحظة (اختياري)</span><input name="n" placeholder="مثلًا: أُبلغ الزبون هاتفيًا"></label>`, { okText: 'تأكيد' });
     if (!dlg) return;
     const n = dlg.querySelector('[name=n]').value.trim();
     o.status = 'ready';
@@ -202,7 +204,7 @@ Views.order = async (el, id, action) => {
   };
 
   $('#aNote').onclick = async () => {
-    const dlg = await C.modal('إضافة ملاحظة', '<label class="field"><span>الملاحظة</span><textarea name="n" rows="3" required></textarea></label><p class="muted sm mt-2">الملاحظات ما تنحذف وتنسجل باسمك.</p>', { okText: 'إضافة' });
+    const dlg = await C.modal('إضافة ملاحظة', '<label class="field"><span>الملاحظة</span><textarea name="n" rows="3" required></textarea></label><p class="muted sm mt-2">لا يمكن حذف الملاحظات، وتُسجَّل باسمك.</p>', { okText: 'إضافة' });
     if (!dlg) return;
     const n = dlg.querySelector('[name=n]').value.trim();
     if (!n) return;
@@ -217,20 +219,20 @@ Views.order = async (el, id, action) => {
     let sig = null;
     let proof = '';
     const dlg = await C.modal('موافقة على عمل إضافي', `
-      <p class="muted">أي عمل ما مذكور بالاستلام لازم موافقة الزبون قبل تنفيذه.</p>
-      <label class="field mt-3"><span>العمل الإضافي *</span><input name="desc" placeholder="مثلاً: تبديل كمبريسر المكيف"></label>
+      <p class="muted">أي عمل غير مذكور في الاستلام يتطلب موافقة الزبون قبل تنفيذه.</p>
+      <label class="field mt-3"><span>العمل الإضافي *</span><input name="desc" placeholder="مثلًا: تبديل كمبريسر المكيف"></label>
       <label class="field mt-3"><span>التكلفة (${U.esc(cur)})</span><input name="cost" inputmode="numeric" dir="ltr"></label>
       <fieldset class="field mt-3"><legend>طريقة الموافقة</legend>
         <div class="row gap-4 wrap">
-          <label class="check"><input type="radio" name="m" value="signature" checked> <span>توقيع الزبون (حاضر)</span></label>
+          <label class="check"><input type="radio" name="m" value="signature" checked> <span>توقيع الزبون (حضوريًا)</span></label>
           <label class="check"><input type="radio" name="m" value="هاتفية"> <span>بالهاتف</span></label>
           <label class="check"><input type="radio" name="m" value="واتساب"> <span>واتساب</span></label>
         </div>
       </fieldset>
       <div id="apSig" class="mt-3"></div>
       <div id="apRemote" class="mt-3" hidden>
-        <label class="field"><span>تفاصيل الموافقة *</span><input name="note" placeholder="مثلاً: اتصلت بيه الساعة 3 ووافق"></label>
-        <div class="mt-3">${C.photoInput('apProof', 'لقطة شاشة للمحادثة (يفضّل)')}</div>
+        <label class="field"><span>تفاصيل الموافقة *</span><input name="note" placeholder="مثلًا: اتصلتُ به الساعة 3 ووافق"></label>
+        <div class="mt-3">${C.photoInput('apProof', 'لقطة شاشة للمحادثة (يُفضَّل إرفاقها)')}</div>
       </div>`,
     {
       okText: 'تسجيل الموافقة',
@@ -252,7 +254,7 @@ Views.order = async (el, id, action) => {
         setValidator((mm) => {
           if (!mm.querySelector('[name=desc]').value.trim()) return 'اكتب العمل الإضافي';
           const meth = mm.querySelector('[name=m]:checked').value;
-          if (meth === 'signature' && sig.isEmpty()) return 'لازم توقيع الزبون';
+          if (meth === 'signature' && sig.isEmpty()) return 'توقيع الزبون مطلوب';
           if (meth !== 'signature' && !mm.querySelector('[name=note]').value.trim()) return 'اكتب تفاصيل الموافقة';
           return null;
         });
@@ -279,7 +281,7 @@ Views.order = async (el, id, action) => {
 
   if (action === 'print') {
     history.replaceState(null, '', `#/order/${encodeURIComponent(o.id)}`);
-    const p = await C.confirm('تم حفظ الاستلام', `أمر العمل رقم ${o.no}. تريد تطبع عقد الاستلام هسه؟`, 'طباعة');
+    const p = await C.confirm('تم حفظ الاستلام', `رقم أمر العمل ${o.no}. هل تريد طباعة عقد الاستلام الآن؟`, 'طباعة');
     if (p) Print.intake(o);
   }
 };
@@ -307,7 +309,7 @@ Views.deliver = async (el, id) => {
         <label class="field"><span>وصف مختصر *</span><textarea name="work" rows="3">${U.esc([...o.complaints.map((c) => c.text), ...(o.approvals || []).map((a) => a.desc)].join('، '))}</textarea></label>
         <div class="grid-2 mt-4">
           <label class="field"><span>العداد عند التسليم (كم) *</span><input name="odo" inputmode="numeric" dir="ltr" value="${U.esc(o.vehicle.odometer)}"></label>
-          <label class="field"><span>سلّمها</span><select name="by">${App.workerOptions(App.user.id)}</select></label>
+          <label class="field"><span>العامل المسلِّم</span><select name="by">${App.workerOptions(App.user.id)}</select></label>
         </div>
         ${o.oldParts === 'return' ? '<label class="check mt-4"><input type="checkbox" name="oldParts" checked> <span>تم تسليم القطع القديمة للزبون</span></label>' : ''}
       </section>
@@ -317,13 +319,13 @@ Views.deliver = async (el, id) => {
         ${infoTable([
           ['التكلفة التقديرية', U.fmtMoney(o.estimate.cost, cur)],
           ['أعمال إضافية موافق عليها', U.fmtMoney(approvedTotal, cur)],
-          ['أجرة أرضية', lateDays ? `${U.fmtMoney(storage, cur)} (${lateDays} يوم تأخير)` : 'لا يوجد'],
+          ['أجرة أرضية', lateDays ? `${U.fmtMoney(storage, cur)} (تأخير ${U.days(lateDays)})` : 'لا يوجد'],
           ['العربون المدفوع', U.fmtMoney(o.deposit.amount, cur)],
         ])}
         <div class="grid-2 mt-4">
           <label class="field"><span>المبلغ النهائي (${U.esc(cur)}) *</span><input name="total" inputmode="numeric" dir="ltr" value="${suggested}"></label>
           <label class="field"><span>المدفوع الآن (${U.esc(cur)})</span><input name="paid" inputmode="numeric" dir="ltr" value="${Math.max(0, suggested - o.deposit.amount)}"></label>
-          <label class="field"><span>طريقة الدفع</span><select name="method"><option>نقداً</option><option>تحويل</option><option>بطاقة</option></select></label>
+          <label class="field"><span>طريقة الدفع</span><select name="method"><option>نقدًا</option><option>تحويل</option><option>بطاقة</option></select></label>
           <div class="field"><span>المتبقي على الزبون</span><output id="rem" class="big-num"></output></div>
         </div>
       </section>
@@ -359,11 +361,11 @@ Views.deliver = async (el, id) => {
     if (!f.odo.value.trim()) errs.push('قراءة العداد');
     if (!num('total') && num('total') !== 0) errs.push('المبلغ النهائي');
     if (sig.isEmpty()) errs.push('توقيع الزبون');
-    if (errs.length) return C.modal('باقي معلومات ناقصة', `<ul class="err-list">${errs.map((x) => `<li>${x}</li>`).join('')}</ul>`, { okText: 'تمام', cancelText: '' });
-    if (num('odo') < o.vehicle.odometer && !(await C.confirm('تنبيه', 'قراءة العداد أقل من قراءة الاستلام. متأكد؟'))) return;
+    if (errs.length) return C.modal('توجد معلومات ناقصة', `<ul class="err-list">${errs.map((x) => `<li>${x}</li>`).join('')}</ul>`, { okText: 'حسنًا', cancelText: '' });
+    if (num('odo') < o.vehicle.odometer && !(await C.confirm('تنبيه', 'قراءة العداد أقل من قراءته عند الاستلام. هل أنت متأكد؟'))) return;
     const r = rem();
-    if (r > 0 && !(await C.confirm('مبلغ متبقي', `باقي على الزبون ${U.fmtMoney(r, cur)}. راح ينسجل كدَين عليه. تكمل التسليم؟`, 'نعم، سلّم'))) return;
-    if (r < 0 && !(await C.confirm('مبلغ زائد', `المدفوع أكثر من المطلوب بـ ${U.fmtMoney(-r, cur)}. تكمل؟`))) return;
+    if (r > 0 && !(await C.confirm('مبلغ متبقٍّ', `يتبقى على الزبون ${U.fmtMoney(r, cur)}، وسيُسجَّل دَينًا عليه. هل تريد إكمال التسليم؟`, 'نعم، أكمل التسليم'))) return;
+    if (r < 0 && !(await C.confirm('مبلغ زائد', `المبلغ المدفوع يزيد على المطلوب بمقدار ${U.fmtMoney(-r, cur)}. هل تريد المتابعة؟`))) return;
 
     const by = f.by.value;
     o.delivery = {
@@ -391,7 +393,7 @@ Views.deliver = async (el, id) => {
     U.toast('تم التسليم');
     location.hash = `#/order/${encodeURIComponent(o.id)}`;
     setTimeout(async () => {
-      if (await C.confirm('تم التسليم', 'تطبع وصل التسليم؟', 'طباعة')) Print.delivery(o);
+      if (await C.confirm('تم التسليم', 'هل تريد طباعة وصل التسليم؟', 'طباعة')) Print.delivery(o);
     }, 300);
   };
 };
