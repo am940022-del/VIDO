@@ -4,22 +4,22 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "== نسخة احتياطية قبل التحديث"
-docker compose exec -T app node src/backup.js || echo "تعذر أخذ نسخة احتياطية (هل المنصة تعمل؟)"
+echo "== Backup before updating"
+docker compose exec -T app node src/backup.js || echo "Backup failed (is the app running?)"
 
-echo "== سحب آخر نسخة من الكود"
+echo "== Fetching the latest code"
 git pull --ff-only
 
-echo "== البناء وإعادة التشغيل"
+echo "== Building and restarting"
 docker compose build
 docker compose up -d
 
 for _ in $(seq 1 40); do
   if docker compose exec -T app node -e "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" 2>/dev/null; then
-    echo "== تم التحديث والمنصة تعمل"
+    echo "== Updated and healthy"
     exit 0
   fi
   sleep 3
 done
-echo "المنصة لا تعمل بعد التحديث. راجع: docker compose logs app" >&2
+echo "The app is not healthy after the update. See: docker compose logs app" >&2
 exit 1
