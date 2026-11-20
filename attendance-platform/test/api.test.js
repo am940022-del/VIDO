@@ -8,6 +8,7 @@ const ExcelJS = require('exceljs');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'att-'));
 process.env.DATA_DIR = tmp;
+process.env.OWNER_RATE_LIMIT = '100';
 const app = require('../src/server');
 
 let server, base;
@@ -264,17 +265,61 @@ test('النموذج التجاري: طلب اشتراك، تفعيل المال
   assert.equal((await owner('GET', '/api/owner/schools')).status, 403);
   assert.equal((await owner('PUT', '/api/owner/password', { current: pass, next: 'short' })).status, 400);
   assert.equal((await owner('PUT', '/api/owner/password', { current: pass, next: 'a-strong-pass-123' })).status, 200);
+  // التحقق بخطوتين إلزامي قبل الوصول للمدارس
+  const totp = require('../src/totp');
+  const need = await owner('GET', '/api/owner/schools');
+  assert.equal(need.data.code, 'need_2fa_setup');
+  const setup = (await owner('POST', '/api/owner/2fa/setup')).data;
+  assert.ok(setup.qr_svg.startsWith('<svg'));
+  const secret = setup.secret.replace(/ /g, '');
+  assert.equal((await owner('POST', '/api/owner/2fa/enable', { code: '000000' })).status, 400);
+  const now = Math.floor(Date.now() / 30000);
+  const en = (await owner('POST', '/api/owner/2fa/enable', { code: totp.codeAt(secret, now) })).data;
+  assert.equal(en.recovery_codes.length, 10);
+
+  // دخول جديد: كلمة المرور وحدها لا تكفي
+  const o2 = client();
+  const l2 = (await o2('POST', '/api/owner/login', { email: 'owner@x.com', password: 'a-strong-pass-123' })).data;
+  assert.equal(l2.need_2fa, true);
+  assert.equal((await o2('GET', '/api/owner/schools')).status, 401);
+  // نفس الرمز المستخدم في التفعيل مرفوض (منع إعادة الاستخدام)
+  assert.equal((await o2('POST', '/api/owner/login/2fa', { code: totp.codeAt(secret, now) })).status, 400);
+  // رمز الاسترداد يعمل مرة واحدة فقط
+  assert.equal((await o2('POST', '/api/owner/login/2fa', { code: en.recovery_codes[0].toUpperCase() })).status, 200);
+  assert.equal((await o2('GET', '/api/owner/schools')).status, 200);
+  const o3 = client();
+  await o3('POST', '/api/owner/login', { email: 'owner@x.com', password: 'a-strong-pass-123' });
+  assert.equal((await o3('POST', '/api/owner/login/2fa', { code: en.recovery_codes[0] })).status, 400);
+  // رمز التطبيق للخطوة التالية يعمل
+  assert.equal((await o3('POST', '/api/owner/login/2fa', { code: totp.codeAt(secret, now + 1) })).status, 200);
+  assert.equal((await o3('GET', '/api/owner/me')).data.recovery_left, 9);
+  // 5 محاولات خاطئة تُنهي جلسة الانتظار
+  const o4 = client();
+  await o4('POST', '/api/owner/login', { email: 'owner@x.com', password: 'a-strong-pass-123' });
+  for (let i = 0; i < 4; i++) assert.equal((await o4('POST', '/api/owner/login/2fa', { code: '111111' })).status, 400);
+  assert.equal((await o4('POST', '/api/owner/login/2fa', { code: '111111' })).status, 401);
+  assert.equal((await o4('POST', '/api/owner/login/2fa', { code: totp.codeAt(secret, now + 1) })).status, 401);
+  // إعادة التعيين من الخادم عند فقدان الجوال
+  require('../src/owner').resetOwner2fa('owner@x.com');
+  assert.equal((await o3('GET', '/api/owner/me')).status, 401);
+  const o5 = client();
+  assert.equal((await o5('POST', '/api/owner/login', { email: 'owner@x.com', password: 'a-strong-pass-123' })).data.need_2fa, false);
+  assert.equal((await o5('GET', '/api/owner/schools')).data.code, 'need_2fa_setup');
+  // نكمل الاختبار بجلسة o2 (أُغلقت بإعادة التعيين) — نعيد الإعداد بجلسة o5
+  const setup2 = (await o5('POST', '/api/owner/2fa/setup')).data;
+  await o5('POST', '/api/owner/2fa/enable', { code: totp.codeAt(setup2.secret.replace(/ /g, ''), now) });
+  const ownerSession = o5;
   assert.equal((await client()('GET', '/api/owner/schools')).status, 401);
   // مدير مدرسة لا يصل للوحة المالك
   assert.equal((await school('GET', '/api/owner/schools')).status, 401);
 
-  const list = (await owner('GET', '/api/owner/schools')).data;
+  const list = (await ownerSession('GET', '/api/owner/schools')).data;
   const sc = list.schools.find((x) => x.email === 'h@x.com');
   assert.equal(sc.status, 'pending');
   assert.ok(list.summary.pending >= 1);
 
   // تفعيل لمدة سنة
-  await owner('PATCH', `/api/owner/schools/${sc.id}`, { status: 'active', extend_months: 12 });
+  await ownerSession('PATCH', `/api/owner/schools/${sc.id}`, { status: 'active', extend_months: 12 });
   assert.equal((await school('POST', '/api/login', { email: 'h@x.com', password: 'password1' })).status, 200);
   const me = (await school('GET', '/api/admin/me')).data;
   assert.ok(me.subscription.days_left >= 360);
@@ -282,21 +327,21 @@ test('النموذج التجاري: طلب اشتراك، تفعيل المال
   assert.equal((await t('GET', `/api/t/${token}/info`)).status, 200);
 
   // إيقاف: المدير والمعلمون يُمنعون
-  await owner('PATCH', `/api/owner/schools/${sc.id}`, { status: 'suspended' });
+  await ownerSession('PATCH', `/api/owner/schools/${sc.id}`, { status: 'suspended' });
   assert.equal((await school('GET', '/api/admin/me')).status, 403);
   assert.equal((await t('GET', `/api/t/${token}/info`)).status, 403);
 
   // انتهاء الاشتراك
-  await owner('PATCH', `/api/owner/schools/${sc.id}`, { status: 'active', subscription_end: '2020-01-01' });
+  await ownerSession('PATCH', `/api/owner/schools/${sc.id}`, { status: 'active', subscription_end: '2020-01-01' });
   const exp = await school('GET', '/api/admin/me');
   assert.equal(exp.status, 403);
   assert.equal(exp.data.code, 'expired');
   // التمديد من اليوم عند الانتهاء
-  await owner('PATCH', `/api/owner/schools/${sc.id}`, { extend_months: 1 });
+  await ownerSession('PATCH', `/api/owner/schools/${sc.id}`, { extend_months: 1 });
   assert.equal((await school('GET', '/api/admin/me')).status, 200);
 
   // المالك ينشئ مدرسة بكلمة مؤقتة: المدير يجب أن يغيّرها
-  const created = (await owner('POST', '/api/owner/schools', { name: 'و', admin_name: 'م', email: 'w@x.com', contact_phone: '9', plan: 'سنوية', extend_months: 12 })).data;
+  const created = (await ownerSession('POST', '/api/owner/schools', { name: 'و', admin_name: 'م', email: 'w@x.com', contact_phone: '9', plan: 'سنوية', extend_months: 12 })).data;
   const w = client();
   assert.equal((await w('POST', '/api/login', { email: 'w@x.com', password: created.temp_password })).status, 200);
   assert.equal((await w('GET', '/api/admin/me')).data.school.must_change_password, 1);
@@ -305,11 +350,11 @@ test('النموذج التجاري: طلب اشتراك، تفعيل المال
   assert.equal((await w('GET', '/api/admin/students')).status, 200);
 
   // إعادة تعيين كلمة المرور تُنهي الجلسات
-  const rs = (await owner('POST', `/api/owner/schools/${created.id}/reset-password`)).data;
+  const rs = (await ownerSession('POST', `/api/owner/schools/${created.id}/reset-password`)).data;
   assert.equal((await w('GET', '/api/admin/me')).status, 401);
   assert.ok(rs.temp_password.length >= 10);
 
   // الحذف يتطلب الاسم
-  assert.equal((await owner('DELETE', `/api/owner/schools/${created.id}`, { confirm_name: 'خطأ' })).status, 400);
-  assert.equal((await owner('DELETE', `/api/owner/schools/${created.id}`, { confirm_name: 'و' })).status, 200);
+  assert.equal((await ownerSession('DELETE', `/api/owner/schools/${created.id}`, { confirm_name: 'خطأ' })).status, 400);
+  assert.equal((await ownerSession('DELETE', `/api/owner/schools/${created.id}`, { confirm_name: 'و' })).status, 200);
 });

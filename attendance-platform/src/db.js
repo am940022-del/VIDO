@@ -139,4 +139,19 @@ CREATE TABLE IF NOT EXISTS owner_sessions (
 );
 `);
 
+/* التحقق بخطوتين لمالك المنصة */
+const adminCols = db.prepare('PRAGMA table_info(platform_admins)').all().map((c) => c.name);
+if (!adminCols.includes('totp_secret')) {
+  db.exec(`ALTER TABLE platform_admins ADD COLUMN totp_secret TEXT;
+           ALTER TABLE platform_admins ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
+           ALTER TABLE platform_admins ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0;
+           ALTER TABLE platform_admins ADD COLUMN recovery_codes TEXT NOT NULL DEFAULT '[]';`);
+}
+const sessCols = db.prepare('PRAGMA table_info(owner_sessions)').all().map((c) => c.name);
+if (!sessCols.includes('verified')) {
+  // verified=0: كلمة المرور صحيحة وبانتظار رمز التحقق بخطوتين
+  db.exec(`ALTER TABLE owner_sessions ADD COLUMN verified INTEGER NOT NULL DEFAULT 1;
+           ALTER TABLE owner_sessions ADD COLUMN failed INTEGER NOT NULL DEFAULT 0;`);
+}
+
 module.exports = db;

@@ -29,6 +29,56 @@
       </form>
     </section>
 
+    <!-- رمز التحقق بخطوتين -->
+    <section id="v-code" class="card narrow hidden" style="margin:48px auto">
+      <h2 class="card-title">التحقق بخطوتين</h2>
+      <p class="card-sub">افتح تطبيق المصادقة في جوالك وأدخل الرمز المكوّن من 6 أرقام.</p>
+      <form id="code-form">
+        <div class="field"><label for="c-code">الرمز</label>
+          <input id="c-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="9" dir="ltr" class="code-input" required></div>
+        <div id="code-error" class="alert alert-error hidden" role="alert" style="margin-top:16px"></div>
+        <button class="btn btn-primary btn-block" style="margin-top:24px" type="submit">تحقق</button>
+      </form>
+      <details style="margin-top:16px"><summary class="muted small" style="cursor:pointer">فقدت جوالك؟</summary>
+        <p class="muted small" style="margin-top:8px">أدخل أحد رموز الاسترداد (مثل <bdi>ab12-cd34</bdi>) في نفس الخانة. كل رمز يعمل مرة واحدة.
+        إن لم تكن معك: من الخادم <code dir="ltr">docker compose exec app node src/cli.js owner:reset-2fa بريدك</code></p>
+      </details>
+    </section>
+
+    <!-- إعداد التحقق بخطوتين -->
+    <section id="v-setup" class="card hidden" style="margin:48px auto;max-width:640px">
+      <h2 class="card-title">فعّل التحقق بخطوتين</h2>
+      <p class="card-sub">هذا الحساب يتحكم في كل المدارس، لذلك يتطلب رمزاً من جوالك عند كل دخول، إضافة إلى كلمة المرور.</p>
+      <ol class="setup-steps">
+        <li>ثبّت تطبيق مصادقة على جوالك: <strong>Google Authenticator</strong> أو <strong>Microsoft Authenticator</strong>.</li>
+        <li>في التطبيق اختر «إضافة» ← «مسح رمز QR» وامسح هذا الرمز:
+          <div class="qr" id="qr"></div>
+          <p class="muted small">لا تستطيع المسح؟ اختر «إدخال مفتاح» واكتب:</p>
+          <code id="secret" dir="ltr" class="secret-key"></code>
+        </li>
+        <li>أدخل الرمز الذي يظهر في التطبيق:
+          <form id="setup-form" class="inline-fields" style="margin-top:8px">
+            <div class="field"><input id="s-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" dir="ltr" class="code-input" aria-label="الرمز" required></div>
+            <button class="btn btn-primary" type="submit">تفعيل</button>
+          </form>
+          <div id="setup-error" class="alert alert-error hidden" role="alert" style="margin-top:16px"></div>
+        </li>
+      </ol>
+    </section>
+
+    <!-- رموز الاسترداد -->
+    <section id="v-recovery" class="card hidden" style="margin:48px auto;max-width:640px">
+      <h2 class="card-title">احفظ رموز الاسترداد</h2>
+      <p class="card-sub">إن فقدت جوالك تدخل بأحد هذه الرموز (كل رمز مرة واحدة). تظهر <strong>مرة واحدة فقط</strong>؛ احفظها في مكان آمن خارج الجوال.</p>
+      <div class="recovery" id="recovery"></div>
+      <div class="row" style="margin-top:24px">
+        <button class="btn" id="rec-copy" type="button">نسخ</button>
+        <button class="btn" id="rec-download" type="button">تنزيل كملف</button>
+        <span class="grow"></span>
+        <button class="btn btn-primary" id="rec-done" type="button">حفظتها، متابعة</button>
+      </div>
+    </section>
+
     <!-- تغيير كلمة المرور المؤقتة -->
     <section id="v-password" class="card narrow hidden" style="margin:48px auto">
       <h2 class="card-title">غيّر كلمة المرور المؤقتة</h2>
@@ -63,6 +113,15 @@
         <thead><tr><th>المدرسة</th><th>الحالة</th><th>الباقة</th><th>نهاية الاشتراك</th><th>الطلاب</th><th>المعلمون</th><th>رصد آخر 30 يوماً</th><th>آخر نشاط</th><th></th></tr></thead>
         <tbody id="rows"></tbody>
       </table></div>
+      <details class="card">
+        <summary style="cursor:pointer;font-weight:500">التحقق بخطوتين ورموز الاسترداد</summary>
+        <p class="muted small" style="margin-top:12px">التحقق بخطوتين مفعّل ✓ — رموز الاسترداد المتبقية: <strong id="rec-left"></strong>.
+          لإنشاء رموز جديدة (تُلغي القديمة) أدخل رمزاً من التطبيق:</p>
+        <form id="regen-form" class="inline-fields" style="margin-top:8px">
+          <div class="field"><input name="code" inputmode="numeric" maxlength="6" dir="ltr" class="code-input" aria-label="الرمز" required></div>
+          <button class="btn" type="submit">رموز استرداد جديدة</button>
+        </form>
+      </details>
       <details class="card">
         <summary style="cursor:pointer;font-weight:500">تغيير كلمة مرور المالك</summary>
         <form id="pw-form-2" class="inline-fields" style="margin-top:16px">

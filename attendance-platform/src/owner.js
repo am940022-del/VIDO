@@ -10,8 +10,12 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const db = require('./db');
+const totp = require('./totp');
+const QRCode = require('qrcode');
 
 const SESSION_HOURS = 12;
+const PENDING_MINUTES = 5;   // مهلة إدخال رمز التحقق بعد كلمة المرور
+const MAX_CODE_ATTEMPTS = 5;
 const STATUSES = ['pending', 'active', 'suspended'];
 
 function tempPassword() {
@@ -47,9 +51,17 @@ function createOwner(email, name) {
   return pass;
 }
 
+/** عند فقدان الجوال: يعطّل التحقق بخطوتين، ويُطلب إعداده من جديد عند الدخول التالي */
+function resetOwner2fa(email) {
+  const a = db.prepare('SELECT id FROM platform_admins WHERE email = ?').get(String(email || '').trim().toLowerCase());
+  if (!a) throw new Error('لا يوجد مالك بهذا البريد');
+  db.prepare("UPDATE platform_admins SET totp_secret = NULL, totp_enabled = 0, totp_last_step = 0, recovery_codes = '[]' WHERE id = ?").run(a.id);
+  db.prepare('DELETE FROM owner_sessions WHERE admin_id = ?').run(a.id);
+}
+
 function ownerRouter({ today, str, HttpError, wrap, newToken, cookieSecure, newSchool, addMonths }) {
   const r = express.Router();
-  const limiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false, message: { error: 'محاولات كثيرة، حاول لاحقاً' } });
+  const limiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: Number(process.env.OWNER_RATE_LIMIT) || 10, standardHeaders: true, legacyHeaders: false, message: { error: 'محاولات كثيرة، حاول لاحقاً' } });
   const cookie = { httpOnly: true, sameSite: 'strict', secure: cookieSecure, path: '/', maxAge: SESSION_HOURS * 3600e3 };
 
   r.post('/login', limiter, wrap(async (req, res) => {
@@ -59,10 +71,49 @@ function ownerRouter({ today, str, HttpError, wrap, newToken, cookieSecure, newS
     if (!ok) throw new HttpError(401, 'البريد أو كلمة المرور غير صحيحة');
     const token = newToken(32);
     db.prepare('DELETE FROM owner_sessions WHERE expires_at < ?').run(Date.now());
-    db.prepare('INSERT INTO owner_sessions (token, admin_id, expires_at) VALUES (?,?,?)').run(token, a.id, Date.now() + SESSION_HOURS * 3600e3);
+    const need2fa = !!a.totp_enabled;
+    // مع التحقق بخطوتين: جلسة مؤقتة قصيرة لا تفتح شيئاً حتى يُدخل الرمز
+    const exp = Date.now() + (need2fa ? PENDING_MINUTES * 60e3 : SESSION_HOURS * 3600e3);
+    db.prepare('INSERT INTO owner_sessions (token, admin_id, expires_at, verified) VALUES (?,?,?,?)').run(token, a.id, exp, need2fa ? 0 : 1);
+    res.cookie('osid', token, cookie);
+    res.json({ ok: true, need_2fa: need2fa, must_change_password: !!a.must_change_password });
+  }));
+
+  /** الخطوة الثانية: رمز التطبيق (6 أرقام) أو رمز استرداد */
+  r.post('/login/2fa', limiter, (req, res) => {
+    const s = req.cookies.osid && db.prepare('SELECT * FROM owner_sessions WHERE token = ?').get(req.cookies.osid);
+    if (!s || s.expires_at < Date.now() || s.verified) throw new HttpError(401, 'انتهت المهلة، سجّل الدخول من جديد');
+    const a = db.prepare('SELECT * FROM platform_admins WHERE id = ?').get(s.admin_id);
+    const code = String(req.body.code || '').trim();
+    let ok = false;
+    const step = totp.verify(a.totp_secret, code, a.totp_last_step);
+    if (step !== null) {
+      db.prepare('UPDATE platform_admins SET totp_last_step = ? WHERE id = ?').run(step, a.id);
+      ok = true;
+    } else if (!/^\d{6}$/.test(code.replace(/\s/g, ''))) { // ليس رمز تطبيق: جرّب رموز الاسترداد
+      const codes = JSON.parse(a.recovery_codes || '[]');
+      const h = totp.hashCode(code);
+      if (codes.includes(h)) {
+        db.prepare('UPDATE platform_admins SET recovery_codes = ? WHERE id = ?').run(JSON.stringify(codes.filter((x) => x !== h)), a.id);
+        ok = true;
+      }
+    }
+    if (!ok) {
+      const failed = s.failed + 1;
+      if (failed >= MAX_CODE_ATTEMPTS) {
+        db.prepare('DELETE FROM owner_sessions WHERE token = ?').run(s.token);
+        throw new HttpError(401, 'محاولات خاطئة كثيرة، سجّل الدخول من جديد');
+      }
+      db.prepare('UPDATE owner_sessions SET failed = ? WHERE token = ?').run(failed, s.token);
+      throw new HttpError(400, 'الرمز غير صحيح');
+    }
+    // جلسة جديدة بعد التحقق (رمز مختلف عن جلسة الانتظار)
+    const token = newToken(32);
+    db.prepare('DELETE FROM owner_sessions WHERE token = ?').run(s.token);
+    db.prepare('INSERT INTO owner_sessions (token, admin_id, expires_at, verified) VALUES (?,?,?,1)').run(token, a.id, Date.now() + SESSION_HOURS * 3600e3);
     res.cookie('osid', token, cookie);
     res.json({ ok: true, must_change_password: !!a.must_change_password });
-  }));
+  });
 
   r.post('/logout', (req, res) => {
     if (req.cookies.osid) db.prepare('DELETE FROM owner_sessions WHERE token = ?').run(req.cookies.osid);
@@ -72,18 +123,59 @@ function ownerRouter({ today, str, HttpError, wrap, newToken, cookieSecure, newS
 
   // ---- كل ما بعده يتطلب جلسة المالك ----
   r.use((req, res, next) => {
-    const row = req.cookies.osid && db.prepare(`SELECT s.admin_id, s.expires_at, a.must_change_password, a.email, a.name
+    const row = req.cookies.osid && db.prepare(`SELECT s.admin_id, s.expires_at, s.verified, a.must_change_password, a.totp_enabled,
+        a.recovery_codes, a.email, a.name
       FROM owner_sessions s JOIN platform_admins a ON a.id = s.admin_id WHERE s.token = ?`).get(req.cookies.osid);
     if (!row || row.expires_at < Date.now()) return res.status(401).json({ error: 'يجب تسجيل الدخول' });
+    if (!row.verified) return res.status(401).json({ error: 'أدخل رمز التحقق', code: 'need_2fa' });
     req.owner = row;
-    // كلمة المرور المؤقتة يجب تغييرها قبل أي شيء آخر
+    // 1) كلمة المرور المؤقتة تُغيّر أولاً  2) ثم إعداد التحقق بخطوتين (إلزامي) قبل الوصول للمدارس
     if (row.must_change_password && !['/me', '/password'].includes(req.path)) {
       return res.status(403).json({ error: 'غيّر كلمة المرور المؤقتة أولاً', code: 'must_change_password' });
+    }
+    if (!row.must_change_password && !row.totp_enabled && !['/me', '/password', '/2fa/setup', '/2fa/enable'].includes(req.path)) {
+      return res.status(403).json({ error: 'فعّل التحقق بخطوتين أولاً', code: 'need_2fa_setup' });
     }
     next();
   });
 
-  r.get('/me', (req, res) => res.json({ email: req.owner.email, name: req.owner.name, must_change_password: !!req.owner.must_change_password, today: today(), country_code: String(process.env.DEFAULT_COUNTRY_CODE || '966').replace(/\D/g, '') }));
+  r.get('/me', (req, res) => res.json({ email: req.owner.email, name: req.owner.name, must_change_password: !!req.owner.must_change_password, totp_enabled: !!req.owner.totp_enabled, recovery_left: JSON.parse(req.owner.recovery_codes || '[]').length, today: today(), country_code: String(process.env.DEFAULT_COUNTRY_CODE || '966').replace(/\D/g, '') }));
+
+  /** إعداد التحقق بخطوتين: سر جديد + رمز QR لمسحه بتطبيق المصادقة */
+  r.post('/2fa/setup', wrap(async (req, res) => {
+    if (req.owner.totp_enabled) throw new HttpError(400, 'التحقق بخطوتين مفعّل مسبقاً');
+    const secret = totp.generateSecret();
+    db.prepare('UPDATE platform_admins SET totp_secret = ? WHERE id = ?').run(secret, req.owner.admin_id);
+    const url = totp.otpauthUrl(secret, req.owner.email, process.env.PLATFORM_NAME || 'Attendance Platform');
+    const qr = await QRCode.toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' });
+    res.json({ secret: secret.match(/.{1,4}/g).join(' '), otpauth: url, qr_svg: qr });
+  }));
+
+  function issueRecovery(adminId) {
+    const codes = totp.recoveryCodes(10);
+    db.prepare('UPDATE platform_admins SET recovery_codes = ? WHERE id = ?').run(JSON.stringify(codes.map(totp.hashCode)), adminId);
+    return codes;
+  }
+
+  r.post('/2fa/enable', (req, res) => {
+    const a = db.prepare('SELECT totp_secret, totp_enabled FROM platform_admins WHERE id = ?').get(req.owner.admin_id);
+    if (a.totp_enabled) throw new HttpError(400, 'التحقق بخطوتين مفعّل مسبقاً');
+    const step = totp.verify(a.totp_secret, req.body.code, 0);
+    if (step === null) throw new HttpError(400, 'الرمز غير صحيح. تأكد من وقت الجوال وأدخل الرمز الحالي.');
+    db.prepare('UPDATE platform_admins SET totp_enabled = 1, totp_last_step = ? WHERE id = ?').run(step, req.owner.admin_id);
+    // الجلسات الأخرى (إن وُجدت) تُغلق
+    db.prepare('DELETE FROM owner_sessions WHERE admin_id = ? AND token != ?').run(req.owner.admin_id, req.cookies.osid);
+    res.json({ ok: true, recovery_codes: issueRecovery(req.owner.admin_id) });
+  });
+
+  /** رموز استرداد جديدة (تُلغي القديمة) — تتطلب رمزاً حالياً من التطبيق */
+  r.post('/2fa/recovery', (req, res) => {
+    const a = db.prepare('SELECT totp_secret, totp_last_step FROM platform_admins WHERE id = ?').get(req.owner.admin_id);
+    const step = totp.verify(a.totp_secret, req.body.code, a.totp_last_step);
+    if (step === null) throw new HttpError(400, 'الرمز غير صحيح');
+    db.prepare('UPDATE platform_admins SET totp_last_step = ? WHERE id = ?').run(step, req.owner.admin_id);
+    res.json({ ok: true, recovery_codes: issueRecovery(req.owner.admin_id) });
+  });
 
   r.put('/password', wrap(async (req, res) => {
     const a = db.prepare('SELECT password_hash FROM platform_admins WHERE id = ?').get(req.owner.admin_id);
@@ -190,4 +282,4 @@ function ownerRouter({ today, str, HttpError, wrap, newToken, cookieSecure, newS
   return r;
 }
 
-module.exports = { ownerRouter, schoolAccess, createOwner, tempPassword };
+module.exports = { ownerRouter, schoolAccess, createOwner, resetOwner2fa, tempPassword };

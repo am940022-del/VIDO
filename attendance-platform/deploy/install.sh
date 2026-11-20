@@ -100,7 +100,7 @@ if [ "$(docker compose exec -T app node src/cli.js owner:count 2>/dev/null | tr 
   read -rp "Your email (platform owner): " OWNER_EMAIL
   read -rp "Your name: " OWNER_NAME
   docker compose exec -T app node src/cli.js owner:create "$OWNER_EMAIL" "${OWNER_NAME:-Owner}" || echo "Create it later: docker compose exec app node src/cli.js owner:create you@example.com"
-  echo "Log in at https://$DOMAIN/owner with the temporary password above, then change it."
+  echo "Log in at https://$DOMAIN/owner with the temporary password above, change it, then scan the QR code with Google/Microsoft Authenticator (two-step verification is required)."
 fi
 
 say "4/5 HTTPS"
@@ -172,6 +172,7 @@ cat <<MSG
   Update:      cd $APP_DIR && sudo bash deploy/update.sh
   Backup now:  cd $APP_DIR && docker compose exec app node src/backup.js
   Owner reset: cd $APP_DIR && docker compose exec app node src/cli.js owner:create you@example.com
+  Lost phone:  cd $APP_DIR && docker compose exec app node src/cli.js owner:reset-2fa you@example.com
 MSG
 [ "$NEW_INSTALL" = "1" ] && echo "  Make sure the DNS A record of $DOMAIN points to this server."
 exit 0

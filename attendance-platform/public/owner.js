@@ -13,7 +13,7 @@ const STATUS = {
 };
 
 function show(view) {
-  for (const v of ['login', 'password', 'dash']) $(`#v-${v}`).classList.toggle('hidden', v !== view);
+  for (const v of ['login', 'code', 'password', 'setup', 'recovery', 'dash']) $(`#v-${v}`).classList.toggle('hidden', v !== view);
   $('#logout').classList.toggle('hidden', view === 'login');
 }
 
@@ -23,9 +23,12 @@ async function boot() {
     $('#who').textContent = me.email;
     cc = me.country_code || cc;
     if (me.must_change_password) return show('password');
+    if (!me.totp_enabled) return startSetup();
+    $('#rec-left').textContent = me.recovery_left;
     show('dash');
     await load();
   } catch (e) {
+    if (e.code === 'need_2fa') { show('code'); return $('#c-code').focus(); }
     show('login');
   }
 }
@@ -34,8 +37,9 @@ async function boot() {
 $('#login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
-    await api(`${O}/login`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+    const r = await api(`${O}/login`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
     e.target.reset();
+    if (r.need_2fa) { show('code'); $('#c-code').focus(); return; }
     boot();
   } catch (ex) {
     $('#login-error').textContent = ex.message;
@@ -55,6 +59,72 @@ async function changePassword(form, errEl) {
 $('#pw-form').addEventListener('submit', (e) => { e.preventDefault(); changePassword(e.target, $('#pw-error')); });
 $('#pw-form-2').addEventListener('submit', (e) => { e.preventDefault(); changePassword(e.target); });
 $('#logout').addEventListener('click', async () => { await api(`${O}/logout`, { method: 'POST' }).catch(() => {}); location.reload(); });
+
+/* ---------------- التحقق بخطوتين ---------------- */
+$('#code-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = $('#code-error');
+  err.classList.add('hidden');
+  try {
+    await api(`${O}/login/2fa`, { method: 'POST', body: { code: $('#c-code').value.trim() } });
+    e.target.reset();
+    boot();
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.classList.remove('hidden');
+    $('#c-code').select();
+    if (ex.status === 401) setTimeout(() => show('login'), 1500);
+  }
+});
+
+async function startSetup() {
+  show('setup');
+  try {
+    const s = await api(`${O}/2fa/setup`, { method: 'POST' });
+    $('#qr').innerHTML = s.qr_svg; // SVG مولّد على الخادم من رابط otpauth فقط
+    $('#secret').textContent = s.secret;
+    $('#s-code').focus();
+  } catch (ex) { toast(ex.message); }
+}
+$('#setup-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = $('#setup-error');
+  err.classList.add('hidden');
+  try {
+    const r = await api(`${O}/2fa/enable`, { method: 'POST', body: { code: $('#s-code').value.trim() } });
+    showRecovery(r.recovery_codes);
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.classList.remove('hidden');
+  }
+});
+
+let recText = '';
+function showRecovery(codes) {
+  recText = `رموز استرداد لوحة مالك المنصة (${location.host}) — كل رمز يُستخدم مرة واحدة:\n\n${codes.join('\n')}\n`;
+  $('#recovery').innerHTML = codes.map((c) => `<code dir="ltr">${esc(c)}</code>`).join('');
+  show('recovery');
+}
+$('#rec-copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(recText); toast('تم النسخ'); } catch { toast('انسخها يدوياً'); }
+});
+$('#rec-download').addEventListener('click', () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([recText], { type: 'text/plain;charset=utf-8' }));
+  a.download = 'recovery-codes.txt';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+$('#rec-done').addEventListener('click', () => { recText = ''; $('#recovery').innerHTML = ''; boot(); });
+$('#regen-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!confirm('ستتوقف رموز الاسترداد القديمة. متابعة؟')) return;
+  try {
+    const r = await api(`${O}/2fa/recovery`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+    e.target.reset();
+    showRecovery(r.recovery_codes);
+  } catch (ex) { toast(ex.message); }
+});
 
 /* ---------------- اللوحة ---------------- */
 async function load() {
