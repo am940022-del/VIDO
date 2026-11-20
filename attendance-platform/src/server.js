@@ -45,6 +45,10 @@ const upload = multer({
 
 /* ---------------- أدوات ---------------- */
 
+const collator = new Intl.Collator('ar', { numeric: true, sensitivity: 'base' });
+/** ترتيب طبيعي: الصف 9 قبل 10 قبل 11، والشعبة 2 قبل 10 */
+const sortSections = (rows) => rows.sort((a, b) => collator.compare(a.grade, b.grade) || collator.compare(a.section, b.section));
+
 const newToken = (bytes = 24) => crypto.randomBytes(bytes).toString('base64url');
 
 function today() {
@@ -182,8 +186,8 @@ admin.post('/rotate-link', (req, res) => {
 admin.get('/sections', (req, res) => {
   const rows = db.prepare(`SELECT sec.id, sec.grade, sec.section, COUNT(st.id) AS students
     FROM sections sec LEFT JOIN students st ON st.section_id = sec.id
-    WHERE sec.school_id = ? GROUP BY sec.id ORDER BY sec.grade, CAST(sec.section AS INTEGER), sec.section`).all(req.schoolId);
-  res.json(rows);
+    WHERE sec.school_id = ? GROUP BY sec.id`).all(req.schoolId);
+  res.json(sortSections(rows));
 });
 
 admin.delete('/sections/:id', (req, res) => {
@@ -229,12 +233,12 @@ admin.get('/students', (req, res) => {
   const rows = db.prepare(`SELECT st.id, st.name, st.student_no, st.guardian_phone, sec.grade, sec.section, sec.id AS section_id
     FROM students st JOIN sections sec ON sec.id = st.section_id
     WHERE st.school_id = @school AND (@sec IS NULL OR st.section_id = @sec) AND (@q = '' OR st.name LIKE '%' || @q || '%')
-    ORDER BY sec.grade, sec.section, st.name LIMIT 2000`).all({ school: req.schoolId, sec: secId, q });
-  res.json(rows);
+    LIMIT 3000`).all({ school: req.schoolId, sec: secId, q });
+  res.json(rows.sort((a, b) => collator.compare(a.grade, b.grade) || collator.compare(a.section, b.section) || collator.compare(a.name, b.name)));
 });
 
 admin.post('/students', (req, res) => {
-  const name = str(req.body.name), grade = str(req.body.grade, 60), section = str(req.body.section, 30);
+  const name = str(req.body.name), grade = xl.normGrade(str(req.body.grade, 60)), section = xl.normSection(str(req.body.section, 30));
   if (!name || !grade || !section) throw new HttpError(400, 'الاسم والصف والشعبة مطلوبة');
   const secId = getOrCreateSection(req.schoolId, grade, section);
   db.prepare('INSERT INTO students (school_id, section_id, name, student_no, guardian_phone) VALUES (?,?,?,?,?)')
@@ -468,7 +472,8 @@ teacher.use((req, res, next) => {
 teacher.get('/info', (req, res) => {
   const sections = db.prepare(`SELECT sec.id, sec.grade, sec.section, COUNT(st.id) AS students
     FROM sections sec LEFT JOIN students st ON st.section_id = sec.id
-    WHERE sec.school_id = ? GROUP BY sec.id ORDER BY sec.grade, CAST(sec.section AS INTEGER), sec.section`).all(req.schoolId);
+    WHERE sec.school_id = ? GROUP BY sec.id`).all(req.schoolId);
+  sortSections(sections);
   res.json({
     school: req.schoolName,
     today: today(),

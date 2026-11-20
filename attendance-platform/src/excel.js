@@ -18,6 +18,29 @@ function clean(s) {
   return cellText(s).replace(/\s+/g, ' ').trim();
 }
 
+/* توحيد الأرقام العربية (١١ → 11) */
+function latinDigits(s) {
+  return String(s || '')
+    .replace(/[٠-٩]/g, (c) => '٠١٢٣٤٥٦٧٨٩'.indexOf(c))
+    .replace(/[۰-۹]/g, (c) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(c));
+}
+
+/* «الصف 11» و«١١» و«11» تصبح كلها «11»، والصفوف النصية مثل «الأول المتوسط» تبقى كما هي */
+function normGrade(g) {
+  let v = latinDigits(clean(g)).replace(/^(ال)?صف\s*[:\-]?\s*/, '').trim();
+  return v || latinDigits(clean(g));
+}
+function normSection(s) {
+  let v = latinDigits(clean(s)).replace(/^(ال)?(شعبه|شعبة|فصل)\s*[:\-]?\s*/, '').trim();
+  return v || latinDigits(clean(s));
+}
+
+/* «11/1» أو «11-1» أو «11 / 2» في عمود واحد → صف وشعبة */
+function splitGradeSection(v) {
+  const m = latinDigits(clean(v)).match(/^(.*?)\s*[\/\\\-–]\s*([^\/\\\-–]+)$/);
+  return m ? { grade: normGrade(m[1]), section: normSection(m[2]) } : null;
+}
+
 function normalizeHeader(s) {
   return clean(s)
     .toLowerCase()
@@ -88,7 +111,7 @@ const TEACHER_FIELDS = {
 
 async function parseStudents(buffer, filename) {
   const rows = await readRows(buffer, filename);
-  const found = mapColumns(rows, STUDENT_FIELDS, ['name', 'grade', 'section']);
+  const found = mapColumns(rows, STUDENT_FIELDS, ['name', 'grade']);
   if (!found) {
     throw new Error('لم يتم العثور على الأعمدة المطلوبة: الاسم، الصف، الشعبة. استخدم القالب المرفق.');
   }
@@ -97,8 +120,13 @@ async function parseStudents(buffer, filename) {
   for (const row of rows.slice(headerRow + 1)) {
     const get = (k) => (map[k] === undefined ? '' : clean(row[map[k]]));
     const name = get('name');
-    const grade = get('grade');
-    const section = get('section');
+    let grade = normGrade(get('grade'));
+    let section = normSection(get('section'));
+    // بدون عمود شعبة: نقبل «11/1» في عمود الصف
+    if (!section) {
+      const sp = splitGradeSection(get('grade'));
+      if (sp) ({ grade, section } = sp);
+    }
     if (!name || !grade || !section) continue;
     out.push({
       name: name.slice(0, 200),
@@ -148,9 +176,10 @@ async function templateStudents() {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('الطلاب');
   ws.addRow(['اسم الطالب', 'الصف', 'الشعبة', 'رقم الطالب', 'جوال ولي الأمر']);
-  ws.addRow(['محمد أحمد علي', 'الأول المتوسط', '1', '1001', '0500000000']);
-  ws.addRow(['خالد سعيد عمر', 'الأول المتوسط', '2', '1002', '']);
-  ws.addRow(['عبدالله فهد ناصر', 'الثاني المتوسط', '1', '1003', '']);
+  ws.addRow(['محمد أحمد علي', '10', '1', '1001', '0500000000']);
+  ws.addRow(['خالد سعيد عمر', '11', '1', '1002', '']);
+  ws.addRow(['عبدالله فهد ناصر', '11', '2', '1003', '']);
+  ws.addRow(['سالم علي حسن', '11', '3', '1004', '']);
   styleSheet(ws, [30, 20, 10, 16, 18]);
   return wb.xlsx.writeBuffer();
 }
@@ -225,4 +254,4 @@ async function exportStudent(data, st) {
   return wb.xlsx.writeBuffer();
 }
 
-module.exports = { exportStudent, parseStudents, parseTeachers, templateStudents, templateTeachers, exportRecords, TYPE_LABEL };
+module.exports = { normGrade, normSection, latinDigits, exportStudent, parseStudents, parseTeachers, templateStudents, templateTeachers, exportRecords, TYPE_LABEL };

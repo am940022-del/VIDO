@@ -45,13 +45,13 @@ async function loadSections() {
   const grades = [...new Set(sections.map((s) => s.grade))];
   const gSel = $('#r-grade');
   const cur = gSel.value;
-  gSel.innerHTML = '<option value="">الكل</option>' + grades.map((g) => `<option>${esc(g)}</option>`).join('');
+  gSel.innerHTML = '<option value="">الكل</option>' + grades.map((g) => `<option value="${esc(g)}">${esc(gradeLabel(g))}</option>`).join('');
   gSel.value = cur;
   fillSectionSelect();
   $('#grades-list').innerHTML = grades.map((g) => `<option value="${esc(g)}">`).join('');
   const fSel = $('#s-filter-section');
   const fc = fSel.value;
-  fSel.innerHTML = '<option value="">كل الشعب</option>' + sections.map((s) => `<option value="${s.id}">${esc(s.grade)} / ${esc(s.section)}</option>`).join('');
+  fSel.innerHTML = '<option value="">كل الشعب</option>' + sections.map((s) => `<option value="${s.id}">${esc(gradeLabel(s.grade))} / ${esc(s.section)}</option>`).join('');
   fSel.value = fc;
 }
 function fillSectionSelect() {
@@ -90,15 +90,15 @@ async function loadOverview() {
     <div class="card stat absent"><div class="stat-label">غياب</div><div class="stat-value num">${t.absent || 0}</div></div>
     <div class="card stat late"><div class="stat-label">تأخير</div><div class="stat-value num">${t.late || 0}</div></div>
     <div class="card stat escape"><div class="stat-label">هروب</div><div class="stat-value num">${t.escape || 0}</div></div>`;
-  bars($('#o-sections'), d.bySection.slice(0, 15), (r) => `${esc(r.grade)} / ${esc(r.section)}`);
+  bars($('#o-sections'), d.bySection.slice(0, 15), (r) => `${esc(gradeLabel(r.grade))} / ${esc(r.section)}`);
   bars($('#o-periods'), d.byPeriod, (r) => `الحصة ${r.period}`);
 
   const topCard = (k, title) => `<div class="card"><h3 class="card-title">${title}</h3>${
-    d.top[k].length ? `<div class="stack">${d.top[k].map((s, i) => `<div class="row between"><span><span class="muted num">${i + 1}.</span> ${esc(s.name)} <span class="muted small">${esc(s.grade)} / ${esc(s.section)}</span></span><span class="badge ${k}">${s[k]}</span></div>`).join('')}</div>` : '<p class="muted small">لا يوجد</p>'
+    d.top[k].length ? `<div class="stack">${d.top[k].map((s, i) => `<div class="row between"><span><span class="muted num">${i + 1}.</span> ${esc(s.name)} <span class="muted small">${esc(gradeLabel(s.grade))} / ${esc(s.section)}</span></span><span class="badge ${k}">${s[k]}</span></div>`).join('')}</div>` : '<p class="muted small">لا يوجد</p>'
   }</div>`;
   $('#o-top').innerHTML = topCard('absent', 'الأكثر غياباً') + topCard('late', 'الأكثر تأخراً') + topCard('escape', 'الأكثر هروباً');
 
-  $('#o-students').innerHTML = d.students.length ? d.students.map((s, i) => `<tr><td class="num">${i + 1}</td><td>${esc(s.name)}</td><td>${esc(s.grade)}</td><td>${esc(s.section)}</td><td class="num">${s.absent}</td><td class="num">${s.late}</td><td class="num">${s.escape}</td><td class="num"><strong>${s.total}</strong></td>
+  $('#o-students').innerHTML = d.students.length ? d.students.map((s, i) => `<tr><td class="num">${i + 1}</td><td>${esc(s.name)}</td><td>${esc(gradeLabel(s.grade))}</td><td>${esc(s.section)}</td><td class="num">${s.absent}</td><td class="num">${s.late}</td><td class="num">${s.escape}</td><td class="num"><strong>${s.total}</strong></td>
       <td>${guardianActions(s, from, to)}</td></tr>`).join('')
     : '<tr><td colspan="9" class="empty">لا توجد حالات مرصودة في هذه الفترة</td></tr>';
 }
@@ -175,7 +175,7 @@ async function loadRecords() {
   const d = await api(`${A}/records?${recordQuery()}`);
   $('#r-count').textContent = `${d.records.length} سجل`;
   $('#r-body').innerHTML = d.records.length ? d.records.map((r) => `<tr>
-      <td class="num">${r.date}</td><td class="num">${r.period_number}</td><td>${esc(r.student_name)}</td><td>${esc(r.grade)}</td><td>${esc(r.section)}</td>
+      <td class="num">${r.date}</td><td class="num">${r.period_number}</td><td>${esc(r.student_name)}</td><td>${esc(gradeLabel(r.grade))}</td><td>${esc(r.section)}</td>
       <td><span class="badge ${r.type}">${TYPE_LABEL[r.type]}</span></td><td>${esc(r.teacher_name || '—')}</td><td>${esc(r.note || '')}</td>
       <td><button class="btn btn-ghost btn-sm btn-danger" data-del-record="${r.id}" type="button">حذف</button></td></tr>`).join('')
     : '<tr><td colspan="9" class="empty">لا توجد سجلات مطابقة</td></tr>';
@@ -196,14 +196,14 @@ $('#r-body').addEventListener('click', async (e) => {
 /* ---------- الطلاب ---------- */
 async function loadStudentsTab() {
   await loadSections();
-  $('#s-sections').innerHTML = sections.length ? sections.map((s) => `<tr><td>${esc(s.grade)}</td><td>${esc(s.section)}</td><td class="num">${s.students}</td>
+  $('#s-sections').innerHTML = sections.length ? sections.map((s) => `<tr><td>${esc(gradeLabel(s.grade))}</td><td>${esc(s.section)}</td><td class="num">${s.students}</td>
     <td><button class="btn btn-ghost btn-sm btn-danger" data-del-section="${s.id}" type="button">حذف</button></td></tr>`).join('')
     : '<tr><td colspan="4" class="empty">لم يتم رفع أي قائمة بعد</td></tr>';
   await loadStudentList();
 }
 async function loadStudentList() {
   const list = await api(`${A}/students?${qs({ section_id: $('#s-filter-section').value, q: $('#s-q').value.trim() })}`);
-  $('#s-list').innerHTML = list.length ? list.map((s, i) => `<tr><td class="num">${i + 1}</td><td>${esc(s.name)}</td><td>${esc(s.grade)}</td><td>${esc(s.section)}</td>
+  $('#s-list').innerHTML = list.length ? list.map((s, i) => `<tr><td class="num">${i + 1}</td><td>${esc(s.name)}</td><td>${esc(gradeLabel(s.grade))}</td><td>${esc(s.section)}</td>
     <td class="num">${esc(s.student_no || '')}</td><td class="num"><bdi>${esc(s.guardian_phone || '')}</bdi></td>
     <td><div class="row" style="flex-wrap:nowrap;gap:4px">
       <a class="btn btn-ghost btn-sm" href="/student-report?${qs({ student_id: s.id, from: me.today.slice(0, 8) + '01', to: me.today })}" target="_blank" rel="noopener">كشف</a>

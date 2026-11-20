@@ -54,6 +54,7 @@ function fmtDate(d, short) {
 /* تطبيع البحث العربي: تجاهل الهمزات والتاء المربوطة والألف المقصورة والتشكيل */
 function normAr(s) {
   return String(s || '').toLowerCase()
+    .replace(/[٠-٩]/g, (c) => '٠١٢٣٤٥٦٧٨٩'.indexOf(c))
     .replace(/[ً-ْـ]/g, '')
     .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
     .replace(/\s+/g, ' ').trim();
@@ -76,7 +77,7 @@ function guardianMessage(school, from, to, st) {
   const t = st.totals;
   const lines = [
     `السلام عليكم ورحمة الله،`,
-    `ولي أمر الطالب: ${st.name} (${st.grade} / ${st.section})`,
+    `ولي أمر الطالب: ${st.name} (${gradeLabel(st.grade)} - ${sectionLabel(st.section)})`,
     ``,
     `نفيدكم من ${school} بملخص حضور ابنكم ${from === to ? `بتاريخ ${from}` : `في الفترة من ${from} إلى ${to}`}:`,
     `• الغياب: ${t.absent} حصة${st.absentDays ? ` (في ${st.absentDays} يوم)` : ''}`,
@@ -100,3 +101,7 @@ function whatsappUrl(phone, cc, text) {
 function smsUrl(phone, cc, text) {
   return `sms:+${normalizePhone(phone, cc)}?&body=${encodeURIComponent(text)}`;
 }
+
+/* «11» → «الصف 11»، والأسماء النصية مثل «الأول المتوسط» تبقى كما هي */
+function gradeLabel(g) { return /^\d+$/.test(String(g)) ? `الصف ${g}` : String(g); }
+function sectionLabel(s) { return `شعبة ${s}`; }

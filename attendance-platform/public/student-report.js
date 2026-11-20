@@ -22,7 +22,7 @@
       </header>
       <div class="info">
         <div><span>اسم الطالب</span><b>${esc(st.name)}</b></div>
-        <div><span>الصف / الشعبة</span><b>${esc(st.grade)} / ${esc(st.section)}</b></div>
+        <div><span>الصف / الشعبة</span><b>${esc(gradeLabel(st.grade))} / ${esc(st.section)}</b></div>
         ${st.student_no ? `<div><span>رقم الطالب</span><b class="num">${esc(st.student_no)}</b></div>` : ''}
       </div>
       <p style="margin-top:24px">المكرم ولي أمر الطالب، السلام عليكم ورحمة الله وبركاته. نفيدكم بملخص حضور ابنكم خلال الفترة المذكورة، ونأمل منكم المتابعة والتواصل مع إدارة المدرسة.</p>

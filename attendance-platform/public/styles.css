@@ -317,6 +317,34 @@ tbody tr:hover { background: color-mix(in srgb, var(--surface-2) 60%, transparen
 }
 .resume strong { color: var(--primary); }
 
+/* شريط المعلم بقائمة منسدلة قابلة للبحث */
+.teacher-bar { background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 64px; z-index: 30; }
+.teacher-bar .container { padding-top: var(--space-2); padding-bottom: var(--space-2); }
+.picker { position: relative; }
+.picker-btn {
+  font: inherit; width: 100%; min-height: 48px; cursor: pointer; color: var(--text);
+  display: flex; align-items: center; gap: var(--space-3); text-align: start;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-btn); padding: 0 var(--space-4);
+}
+.picker-btn.empty { border-color: var(--late); background: var(--late-soft); }
+.picker-label { font-size: 14px; color: var(--text-2); }
+.picker-value { flex: 1; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-caret { color: var(--text-2); }
+.picker-panel {
+  position: absolute; inset-inline: 0; top: calc(100% + var(--space-1)); z-index: 40;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
+  box-shadow: var(--shadow-2); padding: var(--space-2);
+}
+.picker-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; max-height: min(55vh, 360px); overflow-y: auto; }
+.picker-list li {
+  display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);
+  min-height: 48px; padding: 0 var(--space-3); border-radius: var(--radius-btn); cursor: pointer;
+}
+.picker-list li:hover, .picker-list li:focus { background: var(--surface-2); outline: none; }
+.picker-list li[aria-selected='true'] { background: var(--primary-soft); color: var(--primary); font-weight: 700; }
+.picker-list li[aria-disabled='true'] { cursor: default; justify-content: center; }
+.teacher-bar ~ main .sticky-tools { top: 128px; }
+
 /* ---------- نافذة الاختيار ---------- */
 .sheet-backdrop {
   position: fixed; inset: 0; background: rgba(10, 20, 18, 0.45); z-index: 50;

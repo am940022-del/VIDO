@@ -53,12 +53,7 @@ function applyInfo(info) {
   $('#school-name').textContent = info.school;
   $('#today').textContent = fmtDate(info.today, true);
 
-  const sel = $('#teacher-select');
-  const saved = lsGet(K.teacher) || '';
-  sel.innerHTML = '<option value="">— اختر اسمك —</option>';
-  for (const t of info.teachers) sel.add(new Option(t.subject ? `${t.name} — ${t.subject}` : t.name, t.id));
-  sel.value = saved;
-  $('#teacher-box').classList.toggle('hidden', !info.teachers.length);
+  renderPicker();
 
   state.grades = new Map();
   for (const s of info.sections) {
@@ -72,7 +67,7 @@ function applyInfo(info) {
     b.className = 'tile';
     b.type = 'button';
     const n = secs.reduce((a, s) => a + s.students, 0);
-    b.innerHTML = `<strong>${esc(grade)}</strong><span>${secs.length} شعبة · ${n} طالب</span>`;
+    b.innerHTML = `<strong>${esc(gradeLabel(grade))}</strong><span>${secs.length} شعب · ${n} طالب</span>`;
     b.addEventListener('click', () => openGrade(grade));
     tiles.appendChild(b);
   }
@@ -86,7 +81,7 @@ function renderResume() {
   const sec = last && state.info.sections.find((s) => s.id === last.sectionId);
   if (!sec) return box.classList.add('hidden');
   const p = currentPeriod(state.info.periods) || last.period;
-  box.innerHTML = `<span class="grow"><span class="muted small">متابعة آخر صف</span><br><strong>${esc(sec.grade)} — شعبة ${esc(sec.section)}</strong> · الحصة ${p}</span><span aria-hidden="true">←</span>`;
+  box.innerHTML = `<span class="grow"><span class="muted small">متابعة آخر صف</span><br><strong>${esc(gradeLabel(sec.grade))} — ${esc(sectionLabel(sec.section))}</strong> · الحصة ${p}</span><span aria-hidden="true">←</span>`;
   box.onclick = () => {
     state.grade = sec.grade;
     state.sectionId = sec.id;
@@ -119,7 +114,7 @@ function openGrade(grade) {
   state.grade = grade;
   state.sectionId = null;
   if (state.period == null) state.period = currentPeriod(state.info.periods);
-  $('#pick-grade').textContent = grade;
+  $('#pick-grade').textContent = gradeLabel(grade);
   const secs = state.grades.get(grade);
 
   const chips = $('#section-chips');
@@ -129,6 +124,8 @@ function openGrade(grade) {
     c.type = 'button';
     c.className = 'chip';
     c.textContent = s.section;
+    c.title = `${sectionLabel(s.section)} — ${s.students} طالب`;
+    c.setAttribute('aria-label', sectionLabel(s.section));
     c.setAttribute('aria-pressed', 'false');
     c.addEventListener('click', () => {
       state.sectionId = s.id;
@@ -178,7 +175,7 @@ async function openList() {
       if (s) s.status = q.type;
     }
     lsSet(K.last, { sectionId: state.sectionId, period: state.period });
-    $('#crumbs').innerHTML = `<strong>${esc(data.section.grade)}</strong><span class="sep">‹</span><span>شعبة ${esc(data.section.section)}</span><span class="sep">‹</span><span>الحصة ${data.period}</span>`;
+    $('#crumbs').innerHTML = `<strong>${esc(gradeLabel(data.section.grade))}</strong><span class="sep">‹</span><span>${esc(sectionLabel(data.section.section))}</span><span class="sep">‹</span><span>الحصة ${data.period}</span>`;
     $('#search').value = '';
     renderList();
     show('list');
@@ -269,7 +266,7 @@ function flush() {
   setSaveState('saving');
   flushing = (async () => {
     try {
-      await api(`${base}/marks`, { method: 'POST', body: { teacher_id: $('#teacher-select').value || null, items: q } });
+      await api(`${base}/marks`, { method: 'POST', body: { teacher_id: lsGet(K.teacher) || null, items: q } });
       const sent = new Set(q.map((x) => JSON.stringify(x)));
       setQueue(getQueue().filter((x) => !sent.has(JSON.stringify(x))));
       setSaveState(getQueue().length ? 'pending' : 'saved');
@@ -319,7 +316,65 @@ $('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') clos
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
 
 /* ---------------- أحداث عامة ---------------- */
-$('#teacher-select').addEventListener('change', (e) => lsSet(K.teacher, e.target.value));
+/* ---------------- اختيار المعلم: قائمة منسدلة في الأعلى مع بحث ---------------- */
+function renderPicker() {
+  const teachers = state.info.teachers;
+  $('#teacher-bar').classList.toggle('hidden', !teachers.length);
+  const id = Number(lsGet(K.teacher)) || null;
+  const t = teachers.find((x) => x.id === id);
+  if (id && !t) { try { localStorage.removeItem(K.teacher); } catch { /* لا شيء */ } }
+  $('#picker-value').textContent = t ? t.name : 'اختر اسمك';
+  $('#picker-btn').classList.toggle('empty', !t);
+  filterPicker();
+}
+
+function filterPicker() {
+  const q = normAr($('#picker-search').value);
+  const id = Number(lsGet(K.teacher)) || null;
+  const list = state.info.teachers.filter((t) => !q || normAr(t.name).includes(q) || normAr(t.subject).includes(q));
+  $('#picker-list').innerHTML = list.length
+    ? list.map((t) => `<li role="option" tabindex="-1" data-tid="${t.id}" aria-selected="${t.id === id}"><span>${esc(t.name)}</span>${t.subject ? `<span class="muted small">${esc(t.subject)}</span>` : ''}</li>`).join('')
+    : '<li class="muted small" aria-disabled="true">لا يوجد اسم مطابق</li>';
+}
+
+function openPicker() {
+  $('#picker-panel').classList.remove('hidden');
+  $('#picker-btn').setAttribute('aria-expanded', 'true');
+  $('#picker-search').value = '';
+  filterPicker();
+  $('#picker-search').focus();
+}
+function closePicker() {
+  $('#picker-panel').classList.add('hidden');
+  $('#picker-btn').setAttribute('aria-expanded', 'false');
+}
+function chooseTeacher(id) {
+  lsSet(K.teacher, String(id));
+  renderPicker();
+  closePicker();
+  toast(`مرحباً ${state.info.teachers.find((t) => t.id === id)?.name || ''}`);
+}
+
+$('#picker-btn').addEventListener('click', () => ($('#picker-panel').classList.contains('hidden') ? openPicker() : closePicker()));
+$('#picker-search').addEventListener('input', filterPicker);
+$('#picker-search').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { const first = $('#picker-list [data-tid]'); if (first) chooseTeacher(Number(first.dataset.tid)); }
+  if (e.key === 'ArrowDown') { e.preventDefault(); $('#picker-list [data-tid]')?.focus(); }
+});
+$('#picker-list').addEventListener('click', (e) => {
+  const li = e.target.closest('[data-tid]');
+  if (li) chooseTeacher(Number(li.dataset.tid));
+});
+$('#picker-list').addEventListener('keydown', (e) => {
+  const li = e.target.closest('[data-tid]');
+  if (!li) return;
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseTeacher(Number(li.dataset.tid)); }
+  if (e.key === 'ArrowDown') { e.preventDefault(); li.nextElementSibling?.focus(); }
+  if (e.key === 'ArrowUp') { e.preventDefault(); (li.previousElementSibling || $('#picker-search')).focus(); }
+});
+document.addEventListener('click', (e) => { if (!e.target.closest('#picker')) closePicker(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePicker(); });
+
 $('#back-grades').addEventListener('click', () => history.back());
 $('#change-pick').addEventListener('click', () => { flush(); openGrade(state.grade); });
 $('#search').addEventListener('input', renderList);

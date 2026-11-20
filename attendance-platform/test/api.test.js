@@ -150,3 +150,26 @@ test('دورة كاملة: تسجيل، رفع، رصد، إحصاء، تصدي�
   assert.equal((await client()('POST', '/api/login', { email: 'a@x.com', password: 'wrong-pass' })).status, 401);
   assert.equal((await client()('POST', '/api/login', { email: 'a@x.com', password: 'password1' })).status, 200);
 });
+
+test('الصفوف الرقمية: توحيد الأرقام، الترتيب الطبيعي، وعمود «11/1»', async () => {
+  const a = client();
+  await a('POST', '/api/register', { schoolName: 'ج', adminName: 'م', email: 'c@x.com', password: 'password1' });
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('s');
+  ws.addRow(['الاسم', 'الصف', 'الشعبة']);
+  [['أ', '11', '1'], ['ب', '١١', '٢'], ['ج', 'الصف 11', 'الشعبة 10'], ['د', '9', '1'], ['هـ', '10', '1']].forEach((r) => ws.addRow(r));
+  const fd = new FormData();
+  fd.append('file', new Blob([await wb.xlsx.writeBuffer()]), 's.xlsx');
+  const up = await a('POST', '/api/admin/students/upload', fd, true);
+  assert.equal(up.data.sections, 5);
+  const secs = (await a('GET', '/api/admin/sections')).data.map((s) => `${s.grade}/${s.section}`);
+  assert.deepEqual(secs, ['9/1', '10/1', '11/1', '11/2', '11/10']);
+
+  // عمود واحد «الصف/الشعبة»
+  const fd2 = new FormData();
+  fd2.append('file', new Blob(['الاسم,الصف\nو,12/3\nز,١٢-٤\n']), 's.csv');
+  const up2 = await a('POST', '/api/admin/students/upload', fd2, true);
+  assert.equal(up2.data.added, 2);
+  const secs2 = (await a('GET', '/api/admin/sections')).data.map((s) => `${s.grade}/${s.section}`);
+  assert.ok(secs2.includes('12/3') && secs2.includes('12/4'));
+});

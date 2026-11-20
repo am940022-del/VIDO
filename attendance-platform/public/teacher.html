@@ -16,16 +16,31 @@
     </div>
   </header>
 
+  <div class="teacher-bar hidden" id="teacher-bar">
+    <div class="container">
+      <div class="picker" id="picker">
+        <button type="button" class="picker-btn" id="picker-btn" aria-haspopup="listbox" aria-expanded="false">
+          <span class="picker-label">المعلم</span>
+          <span class="picker-value" id="picker-value">اختر اسمك</span>
+          <span class="picker-caret" aria-hidden="true">▾</span>
+        </button>
+        <div class="picker-panel hidden" id="picker-panel">
+          <div class="search">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="picker-search" type="search" placeholder="ابحث عن اسمك" autocomplete="off" aria-label="ابحث عن اسم المعلم" aria-controls="picker-list">
+          </div>
+          <ul class="picker-list" id="picker-list" role="listbox" aria-label="المعلمون"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <main class="container">
     <div id="error" class="alert alert-error hidden" role="alert" style="margin-top:24px"></div>
 
     <!-- 1) اختيار الصف -->
     <section id="view-grades" class="hidden">
       <div class="teacher-head stack">
-        <div id="teacher-box">
-          <label for="teacher-select">اسم المعلم (يُحفظ على جهازك)</label>
-          <select id="teacher-select"><option value="">— اختر اسمك —</option></select>
-        </div>
         <button type="button" id="resume" class="resume hidden"></button>
       </div>
       <p class="step-title">اختر الصف</p>
