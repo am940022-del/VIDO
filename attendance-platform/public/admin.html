@@ -113,7 +113,7 @@
             <button class="btn btn-sm btn-primary" id="o-letters" type="button">كشوف أولياء الأمور (PDF)</button>
           </div>
         </div>
-        <div class="table-wrap"><table><thead><tr><th>#</th><th>الطالب</th><th>الصف</th><th>الشعبة</th><th>غياب</th><th>تأخير</th><th>هروب</th><th>المجموع</th><th>ولي الأمر</th></tr></thead><tbody id="o-students"></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>#</th><th>الطالب</th><th>الصف</th><th>الشعبة</th><th>غياب</th><th>بعذر</th><th>تأخير</th><th>هروب</th><th>المجموع</th><th>ولي الأمر</th></tr></thead><tbody id="o-students"></tbody></table></div>
       </div>
     </section>
 
@@ -167,7 +167,7 @@
           <div class="field"><label for="r-to">إلى</label><input type="date" id="r-to"></div>
           <div class="field"><label for="r-grade">الصف</label><select id="r-grade"><option value="">الكل</option></select></div>
           <div class="field"><label for="r-section">الشعبة</label><select id="r-section"><option value="">الكل</option></select></div>
-          <div class="field"><label for="r-type">الحالة</label><select id="r-type"><option value="">الكل</option><option value="absent">غياب</option><option value="late">تأخير</option><option value="escape">هروب</option></select></div>
+          <div class="field"><label for="r-type">الحالة</label><select id="r-type"><option value="">الكل</option><option value="absent">غياب (بدون عذر)</option><option value="excused">غياب بعذر</option><option value="late">تأخير</option><option value="escape">هروب</option></select></div>
           <div class="field"><label for="r-q">اسم الطالب</label><input id="r-q" type="search"></div>
         </div>
         <div class="row" style="margin-top:16px">

@@ -2,8 +2,8 @@
 /*
  * واجهة المعلم — مصممة ليكون الرصد في ثوانٍ:
  *  - ضغطة واحدة على زر الحالة بجانب اسم الطالب (بدون نوافذ أو تأكيد).
- *  - التغييرات تُجمع وتُرسل في طلب واحد كل لحظات (أخف على الخادم)، وتُحفظ على الجهاز
- *    إن انقطع الاتصال ثم تُرسل تلقائياً.
+ *  - لا يُرسل شيء حتى يضغط المعلم «حفظ» في أعلى القائمة: التغييرات تبقى مسودة على الجهاز
+ *    (لا تضيع إن أُغلقت الصفحة)، وتُرسل كلها في طلب واحد عند الحفظ.
  *  - بيانات المدرسة تُعرض فوراً من ذاكرة الجهاز ثم تُحدّث في الخلفية.
  *  - زر «متابعة آخر صف» والحصة الحالية تُختار تلقائياً حسب الوقت.
  */
@@ -25,11 +25,14 @@ function show(view, push = true) {
   window.scrollTo(0, 0);
   if (push && history.state?.view !== view) history.pushState({ view }, '');
 }
-window.addEventListener('popstate', (e) => {
+window.addEventListener('popstate', async (e) => {
   const v = e.state?.view || 'grades';
+  if (v !== 'list' && !$('#view-list').classList.contains('hidden') && !(await guardLeave())) {
+    history.pushState({ view: 'list' }, ''); // البقاء في القائمة
+    return;
+  }
   if (v === 'list' && !state.sectionId) return show('grades', false);
   if (v === 'pick' && !state.grade) return show('grades', false);
-  if (v !== 'list') flush();
   show(v, false);
 });
 
@@ -83,7 +86,8 @@ function renderResume() {
   if (!sec) return box.classList.add('hidden');
   const p = currentPeriod(state.info.periods) || last.period;
   box.innerHTML = `<span class="grow"><span class="muted small">متابعة آخر صف</span><br><strong>${esc(gradeLabel(sec.grade))} — ${esc(sectionLabel(sec.section))}</strong> · الحصة ${p}</span><span aria-hidden="true">←</span>`;
-  box.onclick = () => {
+  box.onclick = async () => {
+    if (!(await guardLeave())) return;
     state.grade = sec.grade;
     state.sectionId = sec.id;
     state.period = p;
@@ -107,7 +111,13 @@ async function init() {
     }
     if (e.status === 404 || e.status === 403 || !cached) fail(e.message);
   }
-  flush();
+  // مسودات يوم سابق لم تُحفظ لا تُرسل (حتى لا تُسجَّل بتاريخ خاطئ)
+  const today = (lsGet(K.info, true) || {}).today;
+  const q = getQueue();
+  if (today && q.some((x) => x.date !== today)) {
+    setQueue(q.filter((x) => x.date === today));
+    toast('تم تجاهل تغييرات غير محفوظة من يوم سابق');
+  }
 }
 
 /* ---------------- اختيار الشعبة والحصة ---------------- */
@@ -166,10 +176,9 @@ function maybeOpen() {
 /* ---------------- قائمة الطلاب ---------------- */
 async function openList() {
   try {
-    await flush();
     const data = await api(`${base}/sections/${state.sectionId}/students?period=${state.period}`);
     state.students = data.students;
-    // إظهار التغييرات التي لم تُرسل بعد (عند انقطاع الاتصال)
+    // إظهار المسودة التي لم تُحفظ بعد
     for (const q of getQueue()) {
       if (q.period !== state.period) continue;
       const s = state.students.find((x) => x.id === q.student_id);
@@ -178,6 +187,7 @@ async function openList() {
     lsSet(K.last, { sectionId: state.sectionId, period: state.period });
     $('#crumbs').innerHTML = `<strong>${esc(gradeLabel(data.section.grade))}</strong><span class="sep">‹</span><span>${esc(sectionLabel(data.section.section))}</span><span class="sep">‹</span><span>الحصة ${data.period}</span>`;
     renderList();
+    updateSaveBar();
     show('list');
   } catch (e) {
     toast(e.message);
@@ -193,7 +203,8 @@ function rowHtml(s, i) {
     return `<span class="badge ${esc(t)}" title="${TYPE_LABEL[t] || ''} في الحصة ${esc(p)}">ح${esc(p)}</span>`;
   }).join('');
   const btns = TYPES.map((t) => `<button type="button" class="mark ${t}" data-id="${s.id}" data-type="${t}" aria-pressed="${s.status === t}">${SHORT[t]}</button>`).join('');
-  return `<div class="srow ${s.status || ''}" data-row="${s.id}">
+  const dirty = getQueue().some((q) => q.student_id === s.id && q.period === state.period);
+  return `<div class="srow ${s.status || ''} ${dirty ? 'dirty' : ''}" data-row="${s.id}">
     <button type="button" class="sname" data-note="${s.id}" title="إضافة ملاحظة"><span class="idx num">${i + 1}</span><span class="name">${esc(s.name)}</span>${others ? `<span class="others">${others}</span>` : ''}</button>
     <div class="marks" role="group" aria-label="حالة ${esc(s.name)}">${btns}</div>
   </div>`;
@@ -239,56 +250,84 @@ function setStatus(s, type, note) {
   renderRow(s);
 }
 
-/* ---------------- الإرسال المجمّع ---------------- */
+/* ---------------- المسودة والحفظ اليدوي ---------------- */
 function getQueue() { return lsGet(K.queue, true) || []; }
 function setQueue(q) { lsSet(K.queue, q); }
 
-let flushTimer = null;
-let flushing = null;
 function enqueue(item) {
   // آخر تغيير لنفس الطالب والحصة يلغي ما قبله
   const q = getQueue().filter((x) => !(x.student_id === item.student_id && x.period === item.period));
   q.push(item);
   setQueue(q);
-  setSaveState('pending');
-  clearTimeout(flushTimer);
-  flushTimer = setTimeout(flush, 800);
+  setSaveState(null);
+  updateSaveBar();
 }
 
-function flush() {
-  clearTimeout(flushTimer);
-  flushTimer = null;
-  if (flushing) return flushing;
+function updateSaveBar() {
+  const n = getQueue().length;
+  const btn = $('#save-btn');
+  btn.disabled = n === 0;
+  btn.textContent = n ? `حفظ (${n})` : 'حفظ';
+  $('#discard-btn').classList.toggle('hidden', n === 0);
+  $('#save-bar').classList.toggle('has-changes', n > 0);
+  if (n && !$('#save-state').dataset.state) $('#save-state').textContent = `${n} تغيير غير محفوظ`;
+  if (!n && !$('#save-state').dataset.state) $('#save-state').textContent = 'لا توجد تغييرات';
+}
+
+let saving = null;
+function save() {
+  if (saving) return saving;
   const q = getQueue();
-  if (!q.length) return Promise.resolve();
+  if (!q.length) return Promise.resolve(true);
   setSaveState('saving');
-  flushing = (async () => {
+  $('#save-btn').disabled = true;
+  saving = (async () => {
     try {
       await api(`${base}/marks`, { method: 'POST', body: { teacher_id: lsGet(K.teacher) || null, items: q } });
       const sent = new Set(q.map((x) => JSON.stringify(x)));
       setQueue(getQueue().filter((x) => !sent.has(JSON.stringify(x))));
-      setSaveState(getQueue().length ? 'pending' : 'saved');
+      setSaveState('saved');
+      if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+      renderList();
+      return true;
     } catch (e) {
-      if (e.status === 404 || e.status === 403) { fail(e.message); setSaveState('offline'); return; }
-      setSaveState('offline');
-      flushTimer = setTimeout(flush, 5000);
+      if (e.status === 404 || e.status === 403) fail(e.message);
+      setSaveState('failed');
+      return false;
     } finally {
-      flushing = null;
+      saving = null;
+      updateSaveBar();
     }
-    if (getQueue().length && !flushTimer) flushTimer = setTimeout(flush, 800);
   })();
-  return flushing;
+  return saving;
+}
+
+/** قبل مغادرة القائمة: إن وُجدت تغييرات غير محفوظة يُسأل المعلم */
+async function guardLeave() {
+  const n = getQueue().length;
+  if (!n) return true;
+  if (!confirm(`لديك ${n} تغيير غير محفوظ.\nاضغط «موافق» للحفظ ثم المتابعة، أو «إلغاء» للبقاء في الصفحة.`)) return false;
+  return save();
 }
 
 function setSaveState(s) {
   const el = $('#save-state');
-  const txt = { pending: 'بانتظار الحفظ…', saving: 'جارٍ الحفظ…', saved: '✓ تم الحفظ', offline: 'لا يوجد اتصال — سيُحفظ تلقائياً' };
-  el.textContent = txt[s];
-  el.dataset.state = s;
+  const txt = { saving: 'جارٍ الحفظ…', saved: '✓ تم الحفظ', failed: 'لم يُحفظ — تحقق من الاتصال واضغط «حفظ» مرة أخرى' };
+  el.textContent = s ? txt[s] : '';
+  if (s) el.dataset.state = s; else delete el.dataset.state;
+  if (s === 'saved') setTimeout(() => { if ($('#save-state').dataset.state === 'saved') { setSaveState(null); updateSaveBar(); } }, 4000);
 }
 
-window.addEventListener('online', flush);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+$('#save-btn').addEventListener('click', () => save());
+$('#discard-btn').addEventListener('click', async () => {
+  if (!confirm('تراجع عن كل التغييرات غير المحفوظة؟')) return;
+  setQueue([]);
+  setSaveState(null);
+  await openList();
+});
+window.addEventListener('beforeunload', (e) => {
+  if (getQueue().length) { e.preventDefault(); e.returnValue = ''; }
+});
 
 /* ---------------- نافذة الملاحظة (بالضغط على اسم الطالب) ---------------- */
 function openSheet(s) {
@@ -397,6 +436,6 @@ makePicker({
 });
 
 $('#back-grades').addEventListener('click', () => history.back());
-$('#change-pick').addEventListener('click', () => { flush(); openGrade(state.grade); });
+$('#change-pick').addEventListener('click', async () => { if (await guardLeave()) openGrade(state.grade); });
 
 init();

@@ -18,15 +18,15 @@
   document.title = `تقرير ${f.from} - ${f.to}`;
 
   const t = stats.totals;
-  $('#kpis').innerHTML = [['إجمالي الحالات', t.total], ['غياب', t.absent], ['تأخير', t.late], ['هروب', t.escape]]
+  $('#kpis').innerHTML = [['إجمالي الحالات', t.total], ['غياب', t.absent], ['غياب بعذر', t.excused], ['تأخير', t.late], ['هروب', t.escape]]
     .map(([l, v]) => `<div class="kpi"><span class="muted small">${l}</span><b class="num">${v || 0}</b></div>`).join('');
 
   $('#summary').innerHTML = stats.students.map((s, i) => `<tr><td class="num">${i + 1}</td><td>${esc(s.name)}</td><td>${esc(gradeLabel(s.grade))}</td><td>${esc(s.section)}</td>
-    <td class="num">${s.absent}</td><td class="num">${s.late}</td><td class="num">${s.escape}</td><td class="num"><b>${s.total}</b></td></tr>`).join('')
+    <td class="num">${s.absent}</td><td class="num">${s.excused || 0}</td><td class="num">${s.late}</td><td class="num">${s.escape}</td><td class="num"><b>${s.total}</b></td></tr>`).join('')
     || '<tr><td colspan="8" class="empty">لا توجد حالات</td></tr>';
 
   $('#records').innerHTML = rec.records.map((r) => `<tr><td class="num">${r.date}</td><td class="num">${r.period_number}</td><td>${esc(r.student_name)}</td>
-    <td>${esc(gradeLabel(r.grade))}</td><td>${esc(r.section)}</td><td><span class="badge ${r.type}">${TYPE_LABEL[r.type]}</span></td><td>${esc(r.teacher_name || '')}</td></tr>`).join('')
+    <td>${esc(gradeLabel(r.grade))}</td><td>${esc(r.section)}</td><td><span class="badge ${recClass(r)}">${recLabel(r)}</span></td><td>${esc(r.teacher_name || '')}</td></tr>`).join('')
     || '<tr><td colspan="7" class="empty">لا توجد سجلات</td></tr>';
 
   $('#print').addEventListener('click', () => window.print());

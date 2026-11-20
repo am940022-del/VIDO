@@ -29,12 +29,13 @@
       <div class="kpis">
         <div class="kpi absent"><span class="muted small">الغياب (حصص)</span><b class="num">${st.totals.absent}</b></div>
         <div class="kpi"><span class="muted small">أيام الغياب</span><b class="num">${st.absentDays}</b></div>
+        <div class="kpi excused"><span class="muted small">غياب بعذر</span><b class="num">${st.totals.excused || 0}</b></div>
         <div class="kpi late"><span class="muted small">التأخير</span><b class="num">${st.totals.late}</b></div>
         <div class="kpi escape"><span class="muted small">الهروب</span><b class="num">${st.totals.escape}</b></div>
       </div>
       <h2>التفاصيل</h2>
       <table><thead><tr><th>التاريخ</th><th>اليوم</th><th>الحصة</th><th>الحالة</th><th>ملاحظة</th></tr></thead><tbody>
-        ${st.records.map((r) => `<tr><td class="num">${r.date}</td><td>${dayName(r.date)}</td><td class="num">${r.period_number}</td><td><span class="badge ${r.type}">${TYPE_LABEL[r.type]}</span></td><td>${esc(r.note || '')}</td></tr>`).join('')
+        ${st.records.map((r) => `<tr><td class="num">${r.date}</td><td>${dayName(r.date)}</td><td class="num">${r.period_number}</td><td><span class="badge ${recClass(r)}">${recLabel(r)}</span></td><td>${esc([r.note, r.excuse_note && 'العذر: ' + r.excuse_note].filter(Boolean).join(' — '))}</td></tr>`).join('')
           || '<tr><td colspan="5" class="empty">لا توجد حالات في هذه الفترة</td></tr>'}
       </tbody></table>
       <div class="sign"><span>توقيع ولي الأمر: ..................</span><span>إدارة المدرسة: ..................</span></div>

@@ -540,3 +540,47 @@ test('المتابعة: كشف شعبة ليوم محدد وتصحيح الإد�
   assert.equal((await b('GET', `/api/admin/sections/${sec.id}/day?date=${me.today}`)).status, 404);
   assert.equal((await b('PUT', '/api/admin/marks', { student_id: id('أحمد بن سالم'), period: 1, date: me.today, type: 'late' })).status, 404);
 });
+
+test('الغياب بعذر والمسح من الإدارة', async () => {
+  const a = client();
+  await register(a, { schoolName: 'عذر', adminName: 'م', email: 'excuse@x.com', password: 'password1' });
+  await a('POST', '/api/admin/students/paste', { grade: '10', section: '1', names: 'سالم بن علي\nفهد بن خالد' });
+  const me = (await a('GET', '/api/admin/me')).data;
+  const st = (await a('GET', '/api/admin/students')).data;
+  const sid = st.find((s) => s.name === 'سالم بن علي').id;
+  const t = client();
+  const tok = me.school.teacher_token;
+  await t('POST', `/api/t/${tok}/marks`, { items: [1, 2, 3].map((p) => ({ student_id: sid, period: p, type: 'absent' })).concat([{ student_id: sid, period: 4, type: 'late' }]) });
+  const stats = async () => (await a('GET', '/api/admin/stats')).data.totals;
+  assert.deepEqual([(await stats()).absent, (await stats()).excused], [3, 0]);
+
+  // عذر ليوم كامل: الغياب فقط يصبح بعذر، والتأخير يبقى
+  const d = (await a('POST', '/api/admin/records/day', { student_id: sid, date: me.today, action: 'excuse', excuse_note: 'تقرير طبي' })).data;
+  assert.equal(d.changed, 3);
+  let s = await stats();
+  assert.deepEqual([s.absent, s.excused, s.late], [0, 3, 1]);
+  const rep = (await a('GET', `/api/admin/student-reports?student_id=${sid}`)).data.students[0];
+  assert.deepEqual([rep.totals.absent, rep.totals.excused, rep.absentDays], [0, 3, 0]);
+  assert.equal(rep.records[0].excuse_note, 'تقرير طبي');
+  // فلتر السجلات
+  assert.equal((await a('GET', '/api/admin/records?type=excused')).data.records.length, 3);
+  assert.equal((await a('GET', '/api/admin/records?type=absent')).data.records.length, 0);
+
+  // إذا غيّر المعلم الحالة لاحقاً يسقط العذر عن تلك الحصة
+  await t('POST', `/api/t/${tok}/marks`, { items: [{ student_id: sid, period: 1, type: 'escape' }] });
+  s = await stats();
+  assert.deepEqual([s.excused, s.escape], [2, 1]);
+
+  // عذر لحصة واحدة من السجلات، ثم إلغاؤه
+  const recs = (await a('GET', '/api/admin/records?type=excused')).data.records;
+  await a('PATCH', `/api/admin/records/${recs[0].id}`, { excused: false });
+  assert.deepEqual([(await stats()).absent, (await stats()).excused], [1, 1]);
+  // تصحيح من كشف اليوم مباشرة إلى «غياب بعذر»
+  await a('PUT', '/api/admin/marks', { student_id: sid, period: 5, date: me.today, type: 'excused', excuse_note: 'ظرف عائلي' });
+  assert.equal((await stats()).excused, 2);
+
+  // مسح كل حالات اليوم
+  const c = (await a('POST', '/api/admin/records/day', { student_id: sid, date: me.today, action: 'clear' })).data;
+  assert.equal(c.changed, 5);
+  assert.equal((await stats()).total || 0, 0);
+});

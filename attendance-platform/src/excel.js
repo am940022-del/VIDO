@@ -340,6 +340,7 @@ async function templateTeachers() {
 }
 
 const TYPE_LABEL = { absent: 'غياب', late: 'تأخير', escape: 'هروب' };
+const recLabel = (r) => (r.type === 'absent' && r.excused ? 'غياب بعذر' : TYPE_LABEL[r.type]);
 
 async function exportRecords({ schoolName, from, to, records, summary }) {
   const wb = new ExcelJS.Workbook();
@@ -348,11 +349,11 @@ async function exportRecords({ schoolName, from, to, records, summary }) {
   const ws = wb.addWorksheet('السجل');
   ws.addRow(['التاريخ', 'الحصة', 'اسم الطالب', 'الصف', 'الشعبة', 'الحالة', 'المعلم', 'ملاحظة']);
   for (const r of records) {
-    ws.addRow([r.date, r.period_number, r.student_name, r.grade, r.section, TYPE_LABEL[r.type], r.teacher_name || '', r.note || '']);
+    ws.addRow([r.date, r.period_number, r.student_name, r.grade, r.section, recLabel(r), r.teacher_name || '', [r.note, r.excuse_note].filter(Boolean).join(' — ')]);
   }
   styleSheet(ws, [14, 8, 30, 18, 10, 10, 22, 30]);
   ws.autoFilter = { from: 'A1', to: 'H1' };
-  const colors = { غياب: 'FFFEE2E2', تأخير: 'FFFEF3C7', هروب: 'FFEDE9FE' };
+  const colors = { غياب: 'FFFEE2E2', 'غياب بعذر': 'FFE0F2FE', تأخير: 'FFFEF3C7', هروب: 'FFEDE9FE' };
   ws.eachRow((row, n) => {
     if (n === 1) return;
     const c = row.getCell(6);
@@ -360,11 +361,11 @@ async function exportRecords({ schoolName, from, to, records, summary }) {
   });
 
   const ws2 = wb.addWorksheet('ملخص الطلاب');
-  ws2.addRow(['اسم الطالب', 'الصف', 'الشعبة', 'غياب', 'تأخير', 'هروب', 'المجموع']);
+  ws2.addRow(['اسم الطالب', 'الصف', 'الشعبة', 'غياب', 'غياب بعذر', 'تأخير', 'هروب', 'المجموع']);
   for (const s of summary) {
-    ws2.addRow([s.name, s.grade, s.section, s.absent, s.late, s.escape, s.total]);
+    ws2.addRow([s.name, s.grade, s.section, s.absent, s.excused || 0, s.late, s.escape, s.total]);
   }
-  styleSheet(ws2, [30, 18, 10, 10, 10, 10, 10]);
+  styleSheet(ws2, [30, 18, 10, 10, 12, 10, 10, 10]);
 
   const ws3 = wb.addWorksheet('معلومات');
   ws3.views = [{ rightToLeft: true }];
@@ -386,7 +387,7 @@ async function exportStudent(data, st) {
   const info = [
     ['المدرسة', data.school], ['اسم الطالب', st.name], ['الصف', st.grade], ['الشعبة', st.section],
     ['رقم الطالب', st.student_no || ''], ['الفترة', `${data.from} إلى ${data.to}`],
-    ['عدد حصص الغياب', st.totals.absent], ['أيام الغياب', st.absentDays], ['التأخير', st.totals.late], ['الهروب', st.totals.escape],
+    ['عدد حصص الغياب', st.totals.absent], ['أيام الغياب', st.absentDays], ['غياب بعذر (حصص)', st.totals.excused || 0], ['التأخير', st.totals.late], ['الهروب', st.totals.escape],
   ];
   info.forEach((r) => ws.addRow(r));
   ws.getColumn(1).font = { bold: true };
@@ -394,7 +395,7 @@ async function exportStudent(data, st) {
   const head = ws.addRow(['التاريخ', 'الحصة', 'الحالة', 'المعلم', 'ملاحظة']);
   head.font = { bold: true, color: { argb: 'FFFFFFFF' } };
   head.eachCell((c) => (c.fill = HEADER_FILL));
-  for (const r of st.records) ws.addRow([r.date, r.period_number, TYPE_LABEL[r.type], r.teacher_name || '', r.note || '']);
+  for (const r of st.records) ws.addRow([r.date, r.period_number, recLabel(r), r.teacher_name || '', [r.note, r.excuse_note].filter(Boolean).join(' — ')]);
   [18, 30, 10, 22, 30].forEach((w, i) => (ws.getColumn(i + 1).width = w));
   return wb.xlsx.writeBuffer();
 }

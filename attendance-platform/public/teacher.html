@@ -73,8 +73,13 @@
         <div class="crumbs" id="crumbs"></div>
         <button class="btn btn-sm" id="change-pick" type="button">تغيير</button>
       </div>
-      <p class="muted small">الجميع حاضرون افتراضياً — اختر الطالب من القائمة المنسدلة أو اضغط الحالة بجانب اسمه مباشرة. ضغطة أخرى تلغيها.</p>
+      <p class="muted small">الجميع حاضرون افتراضياً — حدد الغائب أو المتأخر أو الهارب، ثم اضغط <strong>حفظ</strong> في الأعلى. لا يُرسل شيء قبل الحفظ.</p>
       <div class="sticky-tools">
+        <div class="save-bar" id="save-bar">
+          <span class="save-state" id="save-state" role="status" aria-live="polite"></span>
+          <button class="btn btn-ghost btn-sm hidden" id="discard-btn" type="button">تراجع</button>
+          <button class="btn btn-primary" id="save-btn" type="button" disabled>حفظ</button>
+        </div>
         <div class="picker" id="student-picker">
           <button type="button" class="picker-btn" aria-haspopup="listbox" aria-expanded="false">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -89,10 +94,7 @@
             <ul class="picker-list" role="listbox" aria-label="طلاب الشعبة"></ul>
           </div>
         </div>
-        <div class="row between" style="margin-top:12px">
-          <div class="summary-bar" id="summary" style="margin:0"></div>
-          <span class="save-state small" id="save-state" role="status" aria-live="polite"></span>
-        </div>
+        <div class="summary-bar" id="summary" style="margin-top:12px"></div>
       </div>
       <div class="students" id="students"></div>
     </section>

@@ -1,6 +1,9 @@
 'use strict';
 /* أدوات مشتركة */
 const TYPE_LABEL = { absent: 'غياب', late: 'تأخير', escape: 'هروب' };
+/* اسم الحالة مع الغياب بعذر، وصنف لونها */
+const recLabel = (r) => (r.type === 'absent' && r.excused ? 'غياب بعذر' : TYPE_LABEL[r.type]);
+const recClass = (r) => (r.type === 'absent' && r.excused ? 'excused' : r.type);
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -128,13 +131,14 @@ function guardianMessage(school, from, to, st) {
     ``,
     `نفيدكم من ${school} بملخص حضور ابنكم ${from === to ? `بتاريخ ${from}` : `في الفترة من ${from} إلى ${to}`}:`,
     `• الغياب: ${t.absent} حصة${st.absentDays ? ` (في ${st.absentDays} يوم)` : ''}`,
+    ...(t.excused ? [`• غياب بعذر: ${t.excused} حصة`] : []),
     `• التأخير: ${t.late}`,
     `• الهروب: ${t.escape}`,
   ];
   if (st.records && st.records.length) {
     lines.push('', 'التفاصيل:');
     const max = 20;
-    st.records.slice(0, max).forEach((r) => lines.push(`- ${r.date} الحصة ${r.period_number}: ${TYPE_LABEL[r.type]}`));
+    st.records.slice(0, max).forEach((r) => lines.push(`- ${r.date} الحصة ${r.period_number}: ${recLabel(r)}`));
     if (st.records.length > max) lines.push(`… و${st.records.length - max} حالات أخرى`);
   }
   lines.push('', 'نأمل منكم المتابعة والتواصل مع المدرسة.', `إدارة ${school}`);

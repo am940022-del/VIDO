@@ -201,6 +201,7 @@ async function loadOverview() {
   $('#o-totals').innerHTML = `
     <div class="card stat"><div class="stat-label">إجمالي الحالات</div><div class="stat-value num">${t.total || 0}</div></div>
     <div class="card stat absent"><div class="stat-label">غياب</div><div class="stat-value num">${t.absent || 0}</div></div>
+    <div class="card stat excused"><div class="stat-label">غياب بعذر</div><div class="stat-value num">${t.excused || 0}</div></div>
     <div class="card stat late"><div class="stat-label">تأخير</div><div class="stat-value num">${t.late || 0}</div></div>
     <div class="card stat escape"><div class="stat-label">هروب</div><div class="stat-value num">${t.escape || 0}</div></div>`;
   bars($('#o-sections'), d.bySection.slice(0, 15), (r) => `${esc(gradeLabel(r.grade))} / ${esc(r.section)}`);
@@ -211,9 +212,9 @@ async function loadOverview() {
   }</div>`;
   $('#o-top').innerHTML = topCard('absent', 'الأكثر غياباً') + topCard('late', 'الأكثر تأخراً') + topCard('escape', 'الأكثر هروباً');
 
-  $('#o-students').innerHTML = d.students.length ? d.students.map((s, i) => `<tr><td class="num">${i + 1}</td><td>${esc(s.name)}${s.status && s.status !== 'active' ? ` <span class="badge ${s.status}">${STATUS_LABEL[s.status]}</span>` : ''}</td><td>${esc(gradeLabel(s.grade))}</td><td>${esc(s.section)}</td><td class="num">${s.absent}</td><td class="num">${s.late}</td><td class="num">${s.escape}</td><td class="num"><strong>${s.total}</strong></td>
+  $('#o-students').innerHTML = d.students.length ? d.students.map((s, i) => `<tr><td class="num">${i + 1}</td><td>${esc(s.name)}${s.status && s.status !== 'active' ? ` <span class="badge ${s.status}">${STATUS_LABEL[s.status]}</span>` : ''}</td><td>${esc(gradeLabel(s.grade))}</td><td>${esc(s.section)}</td><td class="num">${s.absent}</td><td class="num">${s.excused || 0}</td><td class="num">${s.late}</td><td class="num">${s.escape}</td><td class="num"><strong>${s.total}</strong></td>
       <td>${guardianActions(s, from, to)}</td></tr>`).join('')
-    : '<tr><td colspan="9" class="empty">لا توجد حالات مرصودة في هذه الفترة</td></tr>';
+    : '<tr><td colspan="10" class="empty">لا توجد حالات مرصودة في هذه الفترة</td></tr>';
 }
 loaders.overview = () => loadOverview().catch((e) => toast(e.message));
 $('#o-from').addEventListener('change', loaders.overview);
@@ -312,13 +313,14 @@ async function loadDay() {
   $('#d-title').textContent = `${gradeLabel(d.section.grade)} — شعبة ${d.section.section}`;
   $('#d-day').textContent = fullDate(d.date);
   const t = d.totals;
-  $('#d-summary').innerHTML = `<span class="badge">طلاب الشعبة ${t.size}</span><span class="badge absent">غياب ${t.absent}</span><span class="badge late">تأخير ${t.late}</span><span class="badge escape">هروب ${t.escape}</span><span class="badge">طلاب لديهم حالات ${t.students}</span>`;
-  $('#d-head').innerHTML = `<tr><th>#</th><th>الطالب</th>${d.periods.map((p) => `<th class="${d.marked_periods.includes(p) ? '' : 'unmarked'}">ح${p}</th>`).join('')}</tr>`;
+  $('#d-summary').innerHTML = `<span class="badge">طلاب الشعبة ${t.size}</span><span class="badge absent">غياب ${t.absent}</span><span class="badge excused">بعذر ${t.excused}</span><span class="badge late">تأخير ${t.late}</span><span class="badge escape">هروب ${t.escape}</span><span class="badge">طلاب لديهم حالات ${t.students}</span>`;
+  $('#d-head').innerHTML = `<tr><th>#</th><th>الطالب</th>${d.periods.map((p) => `<th class="${d.marked_periods.includes(p) ? '' : 'unmarked'}">ح${p}</th>`).join('')}<th>معالجة اليوم</th></tr>`;
   $('#d-body').innerHTML = d.students.length ? d.students.map((s, i) => `<tr>
       <td class="num">${i + 1}</td>
       <td>${esc(s.name)}${s.status !== 'active' ? ` <span class="badge ${s.status}">${STATUS_LABEL[s.status]}</span>` : ''}</td>
-      ${d.periods.map((p) => { const m = s.marks[p]; return `<td><button type="button" class="cell ${m ? m.type : ''}" data-sid="${s.id}" data-p="${p}" title="${m ? esc(`${TYPE_LABEL[m.type]}${m.teacher ? ' — ' + m.teacher : ''}${m.note ? ' — ' + m.note : ''}`) : 'حاضر'}">${m ? TYPE_LABEL[m.type] : '—'}</button></td>`; }).join('')}
-    </tr>`).join('') : `<tr><td colspan="${d.periods.length + 2}" class="empty">لا يوجد طلاب في هذه الشعبة</td></tr>`;
+      ${d.periods.map((p) => { const m = s.marks[p]; return `<td><button type="button" class="cell ${m ? recClass(m) : ''}" data-sid="${s.id}" data-p="${p}" title="${m ? esc(`${recLabel(m)}${m.teacher ? ' — ' + m.teacher : ''}${m.note ? ' — ' + m.note : ''}${m.excuse_note ? ' — العذر: ' + m.excuse_note : ''}`) : 'حاضر'}">${m ? (m.excused ? 'بعذر' : TYPE_LABEL[m.type]) : '—'}</button></td>`; }).join('')}
+      <td>${Object.keys(s.marks).length ? `<button type="button" class="btn btn-ghost btn-sm" data-dayact="${s.id}">معالجة ▾</button>` : ''}</td>
+    </tr>`).join('') : `<tr><td colspan="${d.periods.length + 3}" class="empty">لا يوجد طلاب في هذه الشعبة</td></tr>`;
   $('#d-result').classList.remove('hidden');
 }
 
@@ -334,7 +336,43 @@ $('#d-print').addEventListener('click', () => { document.body.classList.add('pri
 // تصحيح خانة: قائمة صغيرة بالحالات
 let cellMenu = null;
 function closeCellMenu() { if (cellMenu) { cellMenu.remove(); cellMenu = null; } }
+/** معالجة يوم كامل لطالب: غياب بعذر لكل اليوم، إلغاء العذر، مسح كل الحالات */
+async function processDay(studentId, date, action, after) {
+  const body = { student_id: Number(studentId), date, action };
+  if (action === 'excuse') {
+    const note = prompt('سبب العذر (اختياري) — مثال: تقرير طبي، ظرف عائلي:', '');
+    if (note === null) return;
+    body.excuse_note = note;
+  }
+  if (action === 'clear' && !confirm('مسح كل حالات الطالب في هذا اليوم؟')) return;
+  try {
+    const r = await api(`${A}/records/day`, { method: 'POST', body });
+    toast(action === 'clear' ? `تم مسح ${r.changed} حالة` : action === 'excuse' ? `تم اعتماد العذر (${r.changed} حصة)` : 'تم إلغاء العذر');
+    after();
+  } catch (ex) { toast(ex.message); }
+}
+function openMenu(anchor, html, onPick) {
+  closeCellMenu();
+  cellMenu = document.createElement('div');
+  cellMenu.className = 'cell-menu';
+  cellMenu.innerHTML = html;
+  document.body.appendChild(cellMenu);
+  const r = anchor.getBoundingClientRect();
+  cellMenu.style.top = `${window.scrollY + r.bottom + 4}px`;
+  cellMenu.style.left = `${Math.max(8, Math.min(window.scrollX + r.left + r.width / 2 - cellMenu.offsetWidth / 2, document.documentElement.clientWidth - cellMenu.offsetWidth - 8))}px`;
+  cellMenu.addEventListener('click', (ev) => { const s = ev.target.closest('[data-set]'); if (s) onPick(s.dataset.set); });
+}
+const DAY_MENU = `<button type="button" class="btn btn-sm cell excused" data-set="excuse">غياب بعذر لكل اليوم</button>
+  <button type="button" class="btn btn-sm" data-set="unexcuse">إلغاء العذر</button>
+  <button type="button" class="btn btn-sm btn-danger" data-set="clear">مسح كل الحالات</button>`;
+
 $('#d-body').addEventListener('click', (e) => {
+  const da = e.target.closest('[data-dayact]');
+  if (da) {
+    e.stopPropagation();
+    openMenu(da, DAY_MENU, (act) => { closeCellMenu(); processDay(da.dataset.dayact, $('#d-date').value, act, loadDay); });
+    return;
+  }
   const b = e.target.closest('.cell');
   if (!b) return;
   e.stopPropagation();
@@ -342,8 +380,9 @@ $('#d-body').addEventListener('click', (e) => {
   if ($('#d-date').value > me.today) return toast('لا يمكن الرصد لتاريخ قادم');
   cellMenu = document.createElement('div');
   cellMenu.className = 'cell-menu';
-  cellMenu.innerHTML = [['', 'حاضر'], ['absent', 'غياب'], ['late', 'تأخير'], ['escape', 'هروب']]
-    .map(([t, l]) => `<button type="button" class="btn btn-sm ${t ? `cell ${t}` : ''}" data-set="${t}">${l}</button>`).join('');
+  const cur = dayData.students.find((x) => x.id === Number(b.dataset.sid))?.marks[b.dataset.p];
+  cellMenu.innerHTML = [['', 'حاضر (مسح)'], ['absent', 'غياب'], ['excused', 'غياب بعذر'], ['late', 'تأخير'], ['escape', 'هروب']]
+    .map(([t, l]) => `<button type="button" class="btn btn-sm ${t ? `cell ${t}` : ''}" data-set="${t}" ${cur && recClass(cur) === t ? 'aria-pressed="true"' : ''}>${l}</button>`).join('');
   document.body.appendChild(cellMenu);
   const r = b.getBoundingClientRect();
   cellMenu.style.top = `${window.scrollY + r.bottom + 4}px`;
@@ -352,7 +391,13 @@ $('#d-body').addEventListener('click', (e) => {
     const s = ev.target.closest('[data-set]');
     if (!s) return;
     try {
-      await api(`${A}/marks`, { method: 'PUT', body: { student_id: Number(b.dataset.sid), period: Number(b.dataset.p), date: $('#d-date').value, type: s.dataset.set || null } });
+      const set = s.dataset.set;
+      let excuseNote;
+      if (set === 'excused') {
+        excuseNote = prompt('سبب العذر (اختياري) — مثال: تقرير طبي:', cur?.excuse_note || '');
+        if (excuseNote === null) return;
+      }
+      await api(`${A}/marks`, { method: 'PUT', body: { student_id: Number(b.dataset.sid), period: Number(b.dataset.p), date: $('#d-date').value, type: set || null, excuse_note: excuseNote } });
       closeCellMenu();
       toast('تم الحفظ');
       loadDay();
@@ -421,18 +466,24 @@ async function pickStudent(s) {
         <div class="grid grid-4" style="margin-top:16px">
           <div class="stat absent"><div class="stat-label">غياب (حصص)</div><div class="stat-value num">${st.totals.absent}</div></div>
           <div class="stat"><div class="stat-label">أيام الغياب</div><div class="stat-value num">${st.absentDays}</div></div>
+          <div class="stat excused"><div class="stat-label">غياب بعذر</div><div class="stat-value num">${st.totals.excused || 0}</div></div>
           <div class="stat late"><div class="stat-label">تأخير</div><div class="stat-value num">${st.totals.late}</div></div>
           <div class="stat escape"><div class="stat-label">هروب</div><div class="stat-value num">${st.totals.escape}</div></div>
         </div>
       </div>
-      <div class="table-wrap" style="margin-top:16px"><table><thead><tr><th>التاريخ</th><th>اليوم</th><th>الحالات</th></tr></thead><tbody>
+      <div class="table-wrap" style="margin-top:16px"><table><thead><tr><th>التاريخ</th><th>اليوم</th><th>الحالات</th><th>معالجة</th></tr></thead><tbody>
         ${days.length ? days.map((day) => `<tr><td class="num"><bdi>${esc(day)}</bdi></td><td>${dayName(day)}</td>
-          <td><div class="chips">${byDay[day].map((r) => `<span class="badge ${r.type}" title="${esc(r.teacher_name || '')}">ح${r.period_number} ${TYPE_LABEL[r.type]}</span>`).join('')}</div></td></tr>`).join('')
-        : '<tr><td colspan="3" class="empty">لا توجد حالات في هذه الفترة ✓</td></tr>'}
+          <td><div class="chips">${byDay[day].map((r) => `<span class="badge ${recClass(r)}" title="${esc([r.teacher_name, r.excuse_note && 'العذر: ' + r.excuse_note].filter(Boolean).join(' — '))}">ح${r.period_number} ${recLabel(r)}</span>`).join('')}</div></td>
+          <td><button type="button" class="btn btn-ghost btn-sm" data-stday="${esc(day)}">معالجة ▾</button></td></tr>`).join('')
+        : '<tr><td colspan="4" class="empty">لا توجد حالات في هذه الفترة ✓</td></tr>'}
       </tbody></table></div>`;
     $('#s-result').classList.remove('hidden');
     const wa = $('#s-result [data-wa]');
     if (wa) wa.addEventListener('click', () => sendToGuardian(st.id, 'wa', from, to));
+    $$('#s-result [data-stday]').forEach((btn) => btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openMenu(btn, DAY_MENU, (act) => { closeCellMenu(); processDay(st.id, btn.dataset.stday, act, () => pickStudent(s)); });
+    }));
   } catch (ex) { toast(ex.message); }
 }
 
@@ -451,8 +502,9 @@ async function loadRecords() {
   $('#r-count').textContent = `${d.records.length} سجل`;
   $('#r-body').innerHTML = d.records.length ? d.records.map((r) => `<tr>
       <td class="num">${r.date}</td><td class="num">${r.period_number}</td><td>${esc(r.student_name)}</td><td>${esc(gradeLabel(r.grade))}</td><td>${esc(r.section)}</td>
-      <td><span class="badge ${r.type}">${TYPE_LABEL[r.type]}</span></td><td>${esc(r.teacher_name || '—')}</td><td>${esc(r.note || '')}</td>
-      <td><button class="btn btn-ghost btn-sm btn-danger" data-del-record="${r.id}" type="button">حذف</button></td></tr>`).join('')
+      <td><span class="badge ${recClass(r)}">${recLabel(r)}</span></td><td>${esc(r.teacher_name || '—')}</td><td>${esc([r.note, r.excuse_note && 'العذر: ' + r.excuse_note].filter(Boolean).join(' — '))}</td>
+      <td><div class="row" style="flex-wrap:nowrap;gap:4px">${r.type === 'absent' ? `<button class="btn btn-ghost btn-sm" data-excuse="${r.id}" data-on="${r.excused ? 0 : 1}" type="button">${r.excused ? 'إلغاء العذر' : 'بعذر'}</button>` : ''}
+        <button class="btn btn-ghost btn-sm btn-danger" data-del-record="${r.id}" type="button">مسح</button></div></td></tr>`).join('')
     : '<tr><td colspan="9" class="empty">لا توجد سجلات مطابقة</td></tr>';
 }
 loaders.records = () => loadRecords().catch((e) => toast(e.message));
@@ -461,8 +513,20 @@ $('#r-q').addEventListener('keydown', (e) => e.key === 'Enter' && loaders.record
 $('#r-xlsx').addEventListener('click', () => (location.href = `${A}/export.xlsx?${recordQuery()}`));
 $('#r-pdf').addEventListener('click', () => window.open(`/report?${recordQuery()}`, '_blank'));
 $('#r-body').addEventListener('click', async (e) => {
+  const ex = e.target.closest('[data-excuse]');
+  if (ex) {
+    const on = ex.dataset.on === '1';
+    const note = on ? prompt('سبب العذر (اختياري):', '') : '';
+    if (note === null) return;
+    try {
+      await api(`${A}/records/${ex.dataset.excuse}`, { method: 'PATCH', body: { excused: on, excuse_note: note } });
+      toast(on ? 'تم اعتماد العذر' : 'تم إلغاء العذر');
+      loaders.records();
+    } catch (er) { toast(er.message); }
+    return;
+  }
   const id = e.target.dataset.delRecord;
-  if (!id || !confirm('حذف هذا السجل؟')) return;
+  if (!id || !confirm('مسح هذا السجل؟')) return;
   await api(`${A}/records/${id}`, { method: 'DELETE' });
   toast('تم الحذف');
   loaders.records();

@@ -463,3 +463,24 @@ details.pv ul { margin: var(--space-2) 0; padding-inline-start: var(--space-5); 
   body.print-day #s-result, body.print-day #d-print, body.print-day #setup-hint, body.print-day #sub-banner { display: none !important; }
   body.print-day .cell { border: none; min-height: 0; }
 }
+
+/* شريط الحفظ في قائمة المعلم */
+.save-bar { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-card); background: var(--surface); border: 1px solid var(--border); }
+.save-bar .save-state { flex: 1; font-size: 14px; white-space: normal; }
+.save-bar #save-btn { min-width: 120px; min-height: 48px; font-size: 17px; font-weight: 700; }
+.save-bar.has-changes { border-color: var(--late); background: var(--late-soft); }
+.save-bar.has-changes .save-state { color: var(--late); font-weight: 500; }
+.save-state[data-state='saved'] { color: var(--ok); font-weight: 500; }
+.save-state[data-state='failed'] { color: var(--absent); font-weight: 500; }
+.srow.dirty { box-shadow: inset 4px 0 0 var(--late); }
+[dir='rtl'] .srow.dirty { box-shadow: inset -4px 0 0 var(--late); }
+
+/* الغياب بعذر */
+:root { --excused: #0369a1; --excused-soft: #e0f2fe; }
+@media (prefers-color-scheme: dark) { :root { --excused: #7dd3fc; --excused-soft: #0c2a3a; } }
+.badge.excused { background: var(--excused-soft); color: var(--excused); }
+.cell.excused { background: var(--excused-soft); color: var(--excused); border: 1px solid var(--excused); font-weight: 500; }
+.stat.excused .stat-value { color: var(--excused); }
+.menu-sep { width: 1px; align-self: stretch; background: var(--border); margin: 0 4px; }
+.cell-menu { flex-wrap: wrap; max-width: 360px; }

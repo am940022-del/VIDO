@@ -693,17 +693,19 @@ function recordFilters(req) {
     to,
     grade: str(req.query.grade, 60),
     sec: Number(req.query.section_id) || null,
-    type: TYPES.includes(req.query.type) ? req.query.type : '',
+    type: TYPES.includes(req.query.type) || req.query.type === 'excused' ? req.query.type : '',
     q: str(req.query.q, 100),
   };
 }
 
 const FILTER_SQL = `r.school_id = @school AND r.date BETWEEN @from AND @to
   AND (@grade = '' OR sec.grade = @grade) AND (@sec IS NULL OR r.section_id = @sec)
-  AND (@type = '' OR r.type = @type) AND (@q = '' OR name_match(st.name, @q))`;
+  AND (@type = '' OR (@type = 'excused' AND r.type = 'absent' AND r.excused = 1)
+    OR (@type = 'absent' AND r.type = 'absent' AND r.excused = 0) OR (@type NOT IN ('absent', 'excused') AND r.type = @type))
+  AND (@q = '' OR name_match(st.name, @q))`;
 
 function queryRecords(f) {
-  return db.prepare(`SELECT r.id, r.date, r.period_number, r.type, r.note, r.created_at,
+  return db.prepare(`SELECT r.id, r.date, r.period_number, r.type, r.note, r.excused, r.excuse_note, r.student_id, r.created_at,
       COALESCE(t.name, r.teacher_name) AS teacher_name, st.name AS student_name, sec.grade, sec.section
     FROM records r JOIN students st ON st.id = r.student_id JOIN sections sec ON sec.id = r.section_id
     LEFT JOIN teachers t ON t.id = r.teacher_id
@@ -712,7 +714,7 @@ function queryRecords(f) {
 
 function queryStudentSummary(f) {
   return db.prepare(`SELECT st.id, st.name, sec.grade, sec.section, st.guardian_phone, st.status,
-      SUM(r.type = 'absent') AS absent, SUM(r.type = 'late') AS late, SUM(r.type = 'escape') AS "escape", COUNT(*) AS total
+      SUM(r.type = 'absent' AND r.excused = 0) AS absent, SUM(r.type = 'absent' AND r.excused = 1) AS excused, SUM(r.type = 'late') AS late, SUM(r.type = 'escape') AS "escape", COUNT(*) AS total
     FROM records r JOIN students st ON st.id = r.student_id JOIN sections sec ON sec.id = r.section_id
     WHERE ${FILTER_SQL} GROUP BY st.id ORDER BY total DESC, st.name LIMIT 5000`).all(f);
 }
@@ -723,7 +725,7 @@ admin.get('/sections/:id/day', (req, res) => {
   if (!sec) throw new HttpError(404, 'الشعبة غير موجودة');
   const date = isDate(req.query.date) ? req.query.date : today();
   const periods = db.prepare('SELECT number FROM periods WHERE school_id = ? ORDER BY number').all(req.schoolId).map((p) => p.number);
-  const recs = db.prepare(`SELECT r.student_id, r.period_number, r.type, r.note, COALESCE(t.name, r.teacher_name) AS teacher
+  const recs = db.prepare(`SELECT r.id, r.student_id, r.period_number, r.type, r.note, r.excused, r.excuse_note, COALESCE(t.name, r.teacher_name) AS teacher
     FROM records r LEFT JOIN teachers t ON t.id = r.teacher_id
     WHERE r.school_id = ? AND r.section_id = ? AND r.date = ?`).all(req.schoolId, sec.id, date);
   const withRecords = new Set(recs.map((r) => r.student_id));
@@ -733,9 +735,9 @@ admin.get('/sections/:id/day', (req, res) => {
     .all(req.schoolId, sec.id, sec.id, date)
     .sort((a, b) => collator.compare(a.name, b.name));
   const byStudent = {};
-  for (const r of recs) (byStudent[r.student_id] ||= {})[r.period_number] = { type: r.type, note: r.note, teacher: r.teacher };
-  const totals = { absent: 0, late: 0, escape: 0, students: withRecords.size, size: students.filter((s) => s.status === 'active' && s.section_id === sec.id).length };
-  recs.forEach((r) => totals[r.type]++);
+  for (const r of recs) (byStudent[r.student_id] ||= {})[r.period_number] = { id: r.id, type: r.type, excused: !!r.excused, excuse_note: r.excuse_note, note: r.note, teacher: r.teacher };
+  const totals = { absent: 0, excused: 0, late: 0, escape: 0, students: withRecords.size, size: students.filter((s) => s.status === 'active' && s.section_id === sec.id).length };
+  recs.forEach((r) => totals[r.type === 'absent' && r.excused ? 'excused' : r.type]++);
   // الحصص التي رُصد فيها شيء (لمعرفة هل رصد المعلمون الحصة)
   const markedPeriods = [...new Set(recs.map((r) => r.period_number))];
   res.json({ section: sec, date, periods, marked_periods: markedPeriods, totals,
@@ -751,17 +753,20 @@ admin.put('/marks', (req, res) => {
   if (!st) throw new HttpError(404, 'الطالب غير موجود');
   const period = Number(req.body.period);
   if (!db.prepare('SELECT 1 FROM periods WHERE school_id = ? AND number = ?').get(req.schoolId, period)) throw new HttpError(400, 'الحصة غير صحيحة');
-  const type = req.body.type === null || req.body.type === '' ? null : req.body.type;
+  let type = req.body.type === null || req.body.type === '' ? null : req.body.type;
+  const excused = type === 'excused' ? 1 : 0; // «غياب بعذر» من الإدارة
+  if (excused) type = 'absent';
   if (type !== null && !TYPES.includes(type)) throw new HttpError(400, 'نوع غير صحيح');
   if (type === null) {
     db.prepare('DELETE FROM records WHERE school_id = ? AND student_id = ? AND date = ? AND period_number = ?').run(req.schoolId, st.id, date, period);
   } else {
     // الشعبة في السجل: شعبة الطالب في ذلك اليوم إن سبق رصده فيه، وإلا شعبته الحالية
     const prev = db.prepare('SELECT section_id FROM records WHERE school_id = ? AND student_id = ? AND date = ? LIMIT 1').get(req.schoolId, st.id, date);
-    db.prepare(`INSERT INTO records (school_id, student_id, section_id, date, period_number, type, teacher_id, teacher_name, note)
-      VALUES (?,?,?,?,?,?,NULL,'الإدارة',?)
-      ON CONFLICT (school_id, student_id, date, period_number) DO UPDATE SET type = excluded.type, note = COALESCE(excluded.note, records.note)`)
-      .run(req.schoolId, st.id, prev ? prev.section_id : st.section_id, date, period, type, str(req.body.note, 300) || null);
+    db.prepare(`INSERT INTO records (school_id, student_id, section_id, date, period_number, type, teacher_id, teacher_name, note, excused, excuse_note)
+      VALUES (?,?,?,?,?,?,NULL,'الإدارة',NULL,?,?)
+      ON CONFLICT (school_id, student_id, date, period_number) DO UPDATE SET
+        type = excluded.type, excused = excluded.excused, excuse_note = excluded.excuse_note`)
+      .run(req.schoolId, st.id, prev ? prev.section_id : st.section_id, date, period, type, excused, excused ? str(req.body.excuse_note, 300) || null : null);
   }
   res.json({ ok: true });
 });
@@ -769,6 +774,36 @@ admin.put('/marks', (req, res) => {
 admin.get('/records', (req, res) => {
   const f = recordFilters(req);
   res.json({ filters: f, records: queryRecords(f) });
+});
+
+/** اعتماد عذر لغياب حصة (أو إلغاؤه) */
+admin.patch('/records/:id', (req, res) => {
+  const r = db.prepare('SELECT id, type FROM records WHERE id = ? AND school_id = ?').get(Number(req.params.id), req.schoolId);
+  if (!r) throw new HttpError(404, 'السجل غير موجود');
+  if (r.type !== 'absent') throw new HttpError(400, 'العذر يُعتمد للغياب فقط');
+  const excused = req.body.excused ? 1 : 0;
+  db.prepare('UPDATE records SET excused = ?, excuse_note = ? WHERE id = ?').run(excused, excused ? str(req.body.excuse_note, 300) || null : null, r.id);
+  res.json({ ok: true });
+});
+
+/**
+ * معالجة يوم كامل لطالب: action=excuse (كل غيابه في اليوم بعذر)، unexcuse (إلغاء العذر)،
+ * clear (مسح كل حالاته في اليوم).
+ */
+admin.post('/records/day', (req, res) => {
+  const st = db.prepare('SELECT id FROM students WHERE id = ? AND school_id = ?').get(Number(req.body.student_id), req.schoolId);
+  if (!st) throw new HttpError(404, 'الطالب غير موجود');
+  if (!isDate(req.body.date)) throw new HttpError(400, 'التاريخ غير صحيح');
+  const args = [req.schoolId, st.id, req.body.date];
+  let r;
+  if (req.body.action === 'excuse') {
+    r = db.prepare("UPDATE records SET excused = 1, excuse_note = ? WHERE school_id = ? AND student_id = ? AND date = ? AND type = 'absent'").run(str(req.body.excuse_note, 300) || null, ...args);
+  } else if (req.body.action === 'unexcuse') {
+    r = db.prepare("UPDATE records SET excused = 0, excuse_note = NULL WHERE school_id = ? AND student_id = ? AND date = ? AND type = 'absent'").run(...args);
+  } else if (req.body.action === 'clear') {
+    r = db.prepare('DELETE FROM records WHERE school_id = ? AND student_id = ? AND date = ?').run(...args);
+  } else throw new HttpError(400, 'إجراء غير معروف');
+  res.json({ ok: true, changed: r.changes });
 });
 
 admin.delete('/records/:id', (req, res) => {
@@ -779,15 +814,15 @@ admin.delete('/records/:id', (req, res) => {
 admin.get('/stats', (req, res) => {
   const f = recordFilters(req);
   const base = `FROM records r JOIN students st ON st.id = r.student_id JOIN sections sec ON sec.id = r.section_id WHERE ${FILTER_SQL}`;
-  const totals = db.prepare(`SELECT SUM(r.type='absent') AS absent, SUM(r.type='late') AS late, SUM(r.type='escape') AS "escape",
+  const totals = db.prepare(`SELECT SUM(r.type='absent' AND r.excused=0) AS absent, SUM(r.type='absent' AND r.excused=1) AS excused, SUM(r.type='late') AS late, SUM(r.type='escape') AS "escape",
       COUNT(*) AS total, COUNT(DISTINCT r.student_id) AS students ${base}`).get(f);
-  const byDay = db.prepare(`SELECT r.date, SUM(r.type='absent') AS absent, SUM(r.type='late') AS late, SUM(r.type='escape') AS "escape"
+  const byDay = db.prepare(`SELECT r.date, SUM(r.type='absent' AND r.excused=0) AS absent, SUM(r.type='absent' AND r.excused=1) AS excused, SUM(r.type='late') AS late, SUM(r.type='escape') AS "escape"
       ${base} GROUP BY r.date ORDER BY r.date`).all(f);
   const bySection = db.prepare(`SELECT sec.id, sec.grade, sec.section,
       (SELECT COUNT(*) FROM students s2 WHERE s2.section_id = sec.id AND s2.status = 'active') AS size,
-      SUM(r.type='absent') AS absent, SUM(r.type='late') AS late, SUM(r.type='escape') AS "escape", COUNT(*) AS total
+      SUM(r.type='absent' AND r.excused=0) AS absent, SUM(r.type='absent' AND r.excused=1) AS excused, SUM(r.type='late') AS late, SUM(r.type='escape') AS "escape", COUNT(*) AS total
       ${base} GROUP BY sec.id ORDER BY total DESC`).all(f);
-  const byPeriod = db.prepare(`SELECT r.period_number AS period, SUM(r.type='absent') AS absent, SUM(r.type='late') AS late, SUM(r.type='escape') AS "escape"
+  const byPeriod = db.prepare(`SELECT r.period_number AS period, SUM(r.type='absent' AND r.excused=0) AS absent, SUM(r.type='absent' AND r.excused=1) AS excused, SUM(r.type='late') AS late, SUM(r.type='escape') AS "escape"
       ${base} GROUP BY r.period_number ORDER BY r.period_number`).all(f);
   const students = queryStudentSummary(f);
   const top = (k) => students.filter((s) => s[k] > 0).sort((a, b) => b[k] - a[k]).slice(0, 10);
@@ -806,18 +841,19 @@ function studentReports(req) {
     ? db.prepare(`SELECT st.id, st.name, st.student_no, st.guardian_phone, sec.grade, sec.section
         FROM students st JOIN sections sec ON sec.id = st.section_id WHERE st.id = ? AND st.school_id = ?`).all(sid, req.schoolId)
     : queryStudentSummary(f).slice(0, 1000);
-  const recStmt = db.prepare(`SELECT r.date, r.period_number, r.type, r.note, COALESCE(t.name, r.teacher_name) AS teacher_name
+  const recStmt = db.prepare(`SELECT r.id, r.date, r.period_number, r.type, r.note, r.excused, r.excuse_note, COALESCE(t.name, r.teacher_name) AS teacher_name
     FROM records r LEFT JOIN teachers t ON t.id = r.teacher_id
-    WHERE r.school_id = @school AND r.student_id = @id AND r.date BETWEEN @from AND @to AND (@type = '' OR r.type = @type)
+    WHERE r.school_id = @school AND r.student_id = @id AND r.date BETWEEN @from AND @to
+      AND (@type = '' OR (@type = 'excused' AND r.type = 'absent' AND r.excused = 1) OR (@type = 'absent' AND r.type = 'absent' AND r.excused = 0) OR (@type NOT IN ('absent', 'excused') AND r.type = @type))
     ORDER BY r.date, r.period_number`);
   const phoneStmt = db.prepare('SELECT student_no, guardian_phone FROM students WHERE id = ?');
   const list = students.map((s) => {
     const records = recStmt.all({ ...f, id: s.id });
     const extra = phoneStmt.get(s.id);
-    const totals = { absent: 0, late: 0, escape: 0 };
-    records.forEach((r) => totals[r.type]++);
+    const totals = { absent: 0, excused: 0, late: 0, escape: 0 };
+    records.forEach((r) => totals[r.type === 'absent' && r.excused ? 'excused' : r.type]++);
     // أيام الغياب الكامل = أيام غاب فيها كل الحصص المرصودة لذلك اليوم
-    const days = new Set(records.filter((r) => r.type === 'absent').map((r) => r.date));
+    const days = new Set(records.filter((r) => r.type === 'absent' && !r.excused).map((r) => r.date));
     return { id: s.id, name: s.name, grade: s.grade, section: s.section, student_no: extra.student_no, guardian_phone: extra.guardian_phone, totals, absentDays: days.size, records };
   });
   const school = db.prepare('SELECT name, country_code, logo_key FROM schools WHERE id = ?').get(req.schoolId);
@@ -934,6 +970,8 @@ function applyMarks(schoolId, teacher, items) {
   const upsert = db.prepare(`INSERT INTO records (school_id, student_id, section_id, date, period_number, type, teacher_id, teacher_name, note)
     VALUES (?,?,?,?,?,?,?,?,?)
     ON CONFLICT (school_id, student_id, date, period_number) DO UPDATE SET
+      excused = CASE WHEN excluded.type = records.type THEN records.excused ELSE 0 END,
+      excuse_note = CASE WHEN excluded.type = records.type THEN records.excuse_note ELSE NULL END,
       type = excluded.type, teacher_id = excluded.teacher_id, teacher_name = excluded.teacher_name,
       note = COALESCE(excluded.note, records.note), created_at = datetime('now')`);
   const del = db.prepare('DELETE FROM records WHERE school_id = ? AND student_id = ? AND date = ? AND period_number = ?');

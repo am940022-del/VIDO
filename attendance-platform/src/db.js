@@ -167,6 +167,12 @@ if (!db.prepare('PRAGMA table_info(schools)').all().some((c) => c.name === 'logo
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_schools_logo_key ON schools(logo_key)');
 }
 
+/* الغياب بعذر: تعتمده الإدارة (excused=1) مع سبب اختياري */
+if (!db.prepare('PRAGMA table_info(records)').all().some((c) => c.name === 'excused')) {
+  db.exec(`ALTER TABLE records ADD COLUMN excused INTEGER NOT NULL DEFAULT 0;
+           ALTER TABLE records ADD COLUMN excuse_note TEXT;`);
+}
+
 /* name_match(name, query): بحث الأسماء العربية بالكلمات ومع اختلاف الهمزات (src/search.js) */
 const { nameMatches } = require('./search');
 db.function('name_match', { deterministic: true }, (name, q) => (nameMatches(name, q) ? 1 : 0));
