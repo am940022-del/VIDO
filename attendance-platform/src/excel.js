@@ -1,5 +1,6 @@
 'use strict';
 const ExcelJS = require('exceljs');
+const { readXls, isXls } = require('./xls');
 
 /* ---------- قراءة الملفات المرفوعة (xlsx / csv) ---------- */
 
@@ -25,10 +26,37 @@ function latinDigits(s) {
     .replace(/[۰-۹]/g, (c) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(c));
 }
 
-/* «الصف 11» و«١١» و«11» تصبح كلها «11»، والصفوف النصية مثل «الأول المتوسط» تبقى كما هي */
+/* الصفوف بالكلمات كما في ملفات الوزارة: «الثاني عشر» ← 12 */
+const ORDINALS = [
+  ['الحادي عشر', 11], ['الثاني عشر', 12], ['الاول', 1], ['الثاني', 2], ['الثالث', 3], ['الرابع', 4], ['الخامس', 5],
+  ['السادس', 6], ['السابع', 7], ['الثامن', 8], ['التاسع', 9], ['العاشر', 10],
+];
+const plainAr = (s) => clean(s).replace(/[أإآ]/g, 'ا').replace(/ـ/g, '').replace(/\s+/g, ' ');
+function ordinalGrade(text) {
+  const t = plainAr(text);
+  for (const [w, n] of ORDINALS) if (t === w || t === `ال${w.replace(/^ال/, '')}`) return String(n);
+  return null;
+}
+
+/* «الصف 11» و«١١» و«11» و«الصف الحادي عشر» تصبح كلها «11»، والصفوف مثل «الأول المتوسط» تبقى كما هي */
 function normGrade(g) {
   let v = latinDigits(clean(g)).replace(/^(ال)?صف\s*[:\-]?\s*/, '').trim();
-  return v || latinDigits(clean(g));
+  return ordinalGrade(v) || v || latinDigits(clean(g));
+}
+
+/* الصف من سطر عنوان مثل «بيانات الطالب الأساسية للصف الثاني عشر» أو «قائمة طلاب الصف 11» */
+function gradeFromTitle(rows, beforeRow) {
+  for (let r = Math.min(beforeRow, rows.length) - 1; r >= 0; r--) {
+    for (const cell of rows[r]) {
+      const m = latinDigits(plainAr(cell)).match(/(?:لل|ال)صف\s+(.+)$/);
+      if (!m) continue;
+      const rest = m[1].trim();
+      const num = rest.match(/^(\d{1,2})\b/);
+      if (num) return num[1];
+      for (const [w, n] of ORDINALS) if (rest.startsWith(w)) return String(n);
+    }
+  }
+  return null;
 }
 function normSection(s) {
   let v = latinDigits(clean(s)).replace(/^(ال)?(شعبه|شعبة|فصل)\s*[:\-]?\s*/, '').trim();
@@ -50,9 +78,30 @@ function normalizeHeader(s) {
     .replace(/[^\p{L}\p{N}]/gu, '');
 }
 
+/* بعض الأنظمة تصدّر جدول HTML باسم .xls */
+function readHtmlTable(text) {
+  const rows = [];
+  const dec = (s) => s.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n));
+  // العناوين قبل الجدول (مثل «بيانات الطلاب للصف العاشر») كسطور مستقلة
+  const before = text.split(/<table/i)[0].replace(/<(script|style)[\s\S]*?<\/\1>/gi, '');
+  for (const line of dec(before.replace(/<\/(p|div|h\d|tr|br)>|<br\s*\/?>/gi, '\n')).split('\n')) {
+    if (clean(line)) rows.push([clean(line)]);
+  }
+  for (const tr of text.match(/<tr[\s\S]*?<\/tr>/gi) || []) {
+    rows.push((tr.match(/<t[dh][\s\S]*?<\/t[dh]>/gi) || []).map((c) => clean(dec(c))));
+  }
+  return rows;
+}
+
 async function readRows(buffer, filename) {
-  const wb = new ExcelJS.Workbook();
   const lower = (filename || '').toLowerCase();
+  let raw = null;
+  if (isXls(buffer)) raw = readXls(buffer);
+  else if (/^\s*</.test(buffer.subarray(0, 512).toString('utf8').replace(/^\uFEFF/, ''))) raw = readHtmlTable(buffer.toString('utf8'));
+  if (raw) return raw.map((r) => r.map(clean)).filter((r) => r.some((v) => v !== ''));
+
+  const wb = new ExcelJS.Workbook();
   if (lower.endsWith('.csv')) {
     const { Readable } = require('stream');
     // إزالة BOM إن وجد
@@ -79,8 +128,8 @@ async function readRows(buffer, filename) {
  * يبحث عن صف العناوين ويحدد رقم كل عمود حسب الكلمات المفتاحية.
  * fields: { key: [aliases...] }
  */
-function mapColumns(rows, fields, required) {
-  for (let r = 0; r < Math.min(rows.length, 10); r++) {
+function mapColumns(rows, fields, required, minFields = 1) {
+  for (let r = 0; r < Math.min(rows.length, 40); r++) {
     const headers = rows[r].map(normalizeHeader);
     const map = {};
     for (const [key, aliases] of Object.entries(fields)) {
@@ -90,7 +139,7 @@ function mapColumns(rows, fields, required) {
       if (idx === -1) idx = headers.findIndex((h) => h && normAliases.some((a) => h.includes(a)));
       if (idx !== -1 && !Object.values(map).includes(idx)) map[key] = idx;
     }
-    if (required.every((k) => map[k] !== undefined)) return { headerRow: r, map };
+    if (required.every((k) => map[k] !== undefined) && Object.keys(map).length >= minFields) return { headerRow: r, map };
   }
   return null;
 }
@@ -99,7 +148,7 @@ const STUDENT_FIELDS = {
   name: ['اسم الطالب', 'الاسم', 'اسم', 'name', 'student name', 'student'],
   grade: ['الصف', 'صف', 'المرحله', 'grade', 'class'],
   section: ['الشعبه', 'شعبه', 'الفصل', 'فصل', 'section', 'division'],
-  student_no: ['رقم الطالب', 'رقم الهويه', 'السجل المدني', 'الرقم', 'id', 'student id', 'number'],
+  student_no: ['رقم الطالب', 'الرقم المدرسي', 'الرقم المدني', 'رقم الهويه', 'السجل المدني', 'الرقم', 'id', 'student id', 'number'],
   guardian_phone: ['جوال ولي الامر', 'رقم ولي الامر', 'ولي الامر', 'الجوال', 'جوال', 'هاتف', 'phone', 'mobile'],
 };
 
@@ -109,19 +158,34 @@ const TEACHER_FIELDS = {
   phone: ['الجوال', 'جوال', 'رقم الجوال', 'هاتف', 'phone', 'mobile'],
 };
 
-async function parseStudents(buffer, filename) {
+/**
+ * defaults: { grade, section } تُستخدم إن لم يحدد الملف الصف أو الشعبة
+ * (مثل ملفات الوزارة التي تذكر الصف في العنوان فقط).
+ */
+async function parseStudents(buffer, filename, defaults = {}) {
   const rows = await readRows(buffer, filename);
-  const found = mapColumns(rows, STUDENT_FIELDS, ['name', 'grade']);
+  const found = mapColumns(rows, STUDENT_FIELDS, ['name'], 2);
   if (!found) {
-    throw new Error('لم يتم العثور على الأعمدة المطلوبة: الاسم، الصف، الشعبة. استخدم القالب المرفق.');
+    throw new Error('لم يتم العثور على عمود «اسم الطالب» مع الصف أو الشعبة. استخدم القالب المرفق، أو أضف الأسماء يدوياً.');
   }
   const { headerRow, map } = found;
+  const titleGrade = map.grade === undefined ? gradeFromTitle(rows, headerRow) : null;
+  const defGrade = normGrade(defaults.grade || '');
+  const defSection = normSection(defaults.section || '');
+  if (map.grade === undefined && !titleGrade && !defGrade) {
+    throw new Error('لم يُعرف الصف من الملف. اختر الصف في نموذج الرفع ثم أعد المحاولة.');
+  }
+  if (map.section === undefined && !defSection && map.grade === undefined) {
+    throw new Error('لم تُعرف الشعبة من الملف. اختر الشعبة في نموذج الرفع ثم أعد المحاولة.');
+  }
   const out = [];
   for (const row of rows.slice(headerRow + 1)) {
     const get = (k) => (map[k] === undefined ? '' : clean(row[map[k]]));
     const name = get('name');
-    let grade = normGrade(get('grade'));
-    let section = normSection(get('section'));
+    // تجاهل تكرار صف العناوين في الصفحات التالية من التقرير
+    if (!name || plainAr(name) === plainAr(rows[headerRow][map.name])) continue;
+    let grade = normGrade(get('grade')) || titleGrade || defGrade;
+    let section = normSection(get('section')) || defSection;
     // بدون عمود شعبة: نقبل «11/1» في عمود الصف
     if (!section) {
       const sp = splitGradeSection(get('grade'));
@@ -254,4 +318,4 @@ async function exportStudent(data, st) {
   return wb.xlsx.writeBuffer();
 }
 
-module.exports = { normGrade, normSection, latinDigits, exportStudent, parseStudents, parseTeachers, templateStudents, templateTeachers, exportRecords, TYPE_LABEL };
+module.exports = { readRows, gradeFromTitle, normGrade, normSection, latinDigits, exportStudent, parseStudents, parseTeachers, templateStudents, templateTeachers, exportRecords, TYPE_LABEL };

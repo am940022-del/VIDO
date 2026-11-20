@@ -377,13 +377,13 @@ $('#s-upload').addEventListener('submit', async (e) => {
   btn.disabled = true;
   try {
     if (mode === 'sync') {
+      pendingUpload = new FormData(e.target); // نفس الملفات والخيارات تُرسل عند التطبيق
       fd.append('dry_run', '1');
       const p = await api(`${A}/students/upload`, { method: 'POST', form: fd });
-      pendingUpload = e.target.querySelector('input[type=file]').files[0];
       renderPreview(p);
     } else {
       const r = await api(`${A}/students/upload`, { method: 'POST', form: fd });
-      toast(`تمت إضافة ${r.added} طالب${r.skipped ? ` (تم تجاهل ${r.skipped} مكرر)` : ''} — ${r.sections} شعبة`);
+      toast(`تمت إضافة ${r.added} طالب${r.skipped ? ` (تم تجاهل ${r.skipped} مكرر)` : ''} — ${filesText(r.files)}`);
       e.target.reset();
       await loadMe();
       loaders.students();
@@ -391,12 +391,17 @@ $('#s-upload').addEventListener('submit', async (e) => {
   } catch (ex) { toast(ex.message); } finally { btn.disabled = false; }
 });
 
+function filesText(files) {
+  return (files || []).map((f) => `${f.name}: ${f.students} طالب (${f.sections.join('، ')})`).join(' — ');
+}
+
 function renderPreview(p) {
   const s = p.summary;
   const list = (title, arr, fmt, open) => arr.length ? `<details class="pv" ${open ? 'open' : ''}><summary>${title} (${arr.length})</summary><ul>${arr.map(fmt).join('')}</ul></details>` : '';
   const box = $('#s-preview');
   box.innerHTML = `
     <h3>معاينة التحديث — لم يُطبق شيء بعد</h3>
+    <ul class="muted small" style="margin:8px 0 0;padding-inline-start:20px">${(p.files || []).map((f) => `<li><bdi>${esc(f.name)}</bdi>: ${f.students} طالب — ${f.sections.map(esc).join('، ')}</li>`).join('')}</ul>
     <div class="preview-grid" style="margin-top:12px">
       <div class="stat"><div class="stat-label">بدون تغيير</div><div class="stat-value num">${s.unchanged}</div></div>
       <div class="stat"><div class="stat-label">نقل إلى شعبة أخرى</div><div class="stat-value num">${s.moved}</div></div>
@@ -420,10 +425,9 @@ function renderPreview(p) {
   box.classList.remove('hidden');
   $('#pv-cancel').onclick = () => { box.classList.add('hidden'); pendingUpload = null; };
   $('#pv-apply').onclick = async () => {
-    const fd = new FormData();
-    fd.append('file', pendingUpload);
-    fd.append('mode', 'sync');
-    fd.append('missing_action', $('#pv-missing')?.value || 'keep');
+    const fd = pendingUpload;
+    fd.set('mode', 'sync');
+    fd.set('missing_action', $('#pv-missing')?.value || 'keep');
     try {
       const r = await api(`${A}/students/upload`, { method: 'POST', form: fd });
       toast(`تم التحديث: نقل ${r.summary.moved}، جدد ${r.summary.added}، عائدون ${r.summary.reactivated}`);
@@ -435,6 +439,23 @@ function renderPreview(p) {
     } catch (ex) { toast(ex.message); }
   };
 }
+
+/* --- لصق قائمة أسماء --- */
+$('#sp-names').addEventListener('input', (e) => {
+  const n = e.target.value.split('\n').filter((l) => l.trim()).length;
+  $('#sp-count').textContent = n ? `${n} اسم` : '';
+});
+$('#s-paste').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const r = await api(`${A}/students/paste`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+    toast(`تمت إضافة ${r.added} طالب إلى ${r.section}${r.skipped ? ` (تم تجاهل ${r.skipped} مكرر أو فارغ)` : ''}`);
+    $('#sp-names').value = '';
+    $('#sp-count').textContent = '';
+    await loadMe();
+    loaders.students();
+  } catch (ex) { toast(ex.message); }
+});
 
 $('#s-add').addEventListener('submit', async (e) => {
   e.preventDefault();

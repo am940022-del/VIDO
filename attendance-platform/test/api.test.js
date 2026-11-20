@@ -69,7 +69,7 @@ test('دورة كاملة: تسجيل، رفع، رصد، إحصاء، تصدي�
     ['أحمد علي', 'الأول', '1'], ['سعيد محمد', 'الأول', '1'], ['خالد عمر', 'الأول', '2'], ['فهد ناصر', 'الثاني', '1'], ['أحمد علي', 'الأول', '1'],
   ]), true);
   assert.equal(up.status, 200);
-  assert.deepEqual(up.data, { added: 4, skipped: 1, sections: 3 });
+  assert.deepEqual([up.data.added, up.data.skipped, up.data.sections], [4, 1, 3]);
 
   // رفع المعلمين بصيغة CSV
   const fd = new FormData();
@@ -86,7 +86,7 @@ test('دورة كاملة: تسجيل، رفع، رصد، إحصاء، تصدي�
   assert.equal(info.periods.length, 7);
   assert.equal(info.sections.length, 3);
 
-  const sec = info.sections.find((s) => s.grade === 'الأول' && s.section === '1');
+  const sec = info.sections.find((s) => s.grade === '1' && s.section === '1'); // «الأول» ← 1
   const list = (await t('GET', `/api/t/${token}/sections/${sec.id}/students?period=2`)).data;
   assert.equal(list.students.length, 2);
 
@@ -357,4 +357,55 @@ test('النموذج التجاري: طلب اشتراك، تفعيل المال
   // الحذف يتطلب الاسم
   assert.equal((await ownerSession('DELETE', `/api/owner/schools/${created.id}`, { confirm_name: 'خطأ' })).status, 400);
   assert.equal((await ownerSession('DELETE', `/api/owner/schools/${created.id}`, { confirm_name: 'و' })).status, 200);
+});
+
+test('ملفات الوزارة (.xls) واللصق اليدوي', async () => {
+  const xl = require('../src/excel');
+  // الصف من العنوان، والأرقام بالكلمات
+  assert.equal(xl.normGrade('الثاني عشر'), '12');
+  assert.equal(xl.normGrade('الصف الحادي عشر'), '11');
+  assert.equal(xl.normGrade('الأول المتوسط'), 'الأول المتوسط');
+  assert.equal(xl.gradeFromTitle([['بيانات الطالب الأساسية  للصف الثاني عشر']], 1), '12');
+  assert.equal(xl.gradeFromTitle([['قائمة طلاب الصف 9']], 1), '9');
+
+  // جدول HTML باسم .xls (تصدير شائع من الأنظمة) بنفس شكل ملف الوزارة
+  const html = '<html><body><p>بيانات الطالب الأساسية للصف العاشر</p><table>' +
+    '<tr><td>الشعبة</td><td>الرقم المدرسي</td><td>اسم الطالب</td><td>م</td></tr>' +
+    '<tr><td>3</td><td>012345678901</td><td>سالم بن علي</td><td>1</td></tr>' +
+    '<tr><td>3</td><td>012345678902</td><td>ماجد بن خالد</td><td>2</td></tr></table></body></html>';
+  const rows = await xl.parseStudents(Buffer.from(html), 'r.xls');
+  assert.deepEqual(rows.map((r) => [r.grade, r.section, r.student_no]), [['10', '3', '012345678901'], ['10', '3', '012345678902']]);
+
+  // عدة ملفات في رفع واحد + الصف من النموذج إن لم يكن في الملف
+  const a = client();
+  await register(a, { schoolName: 'ز', adminName: 'م', email: 'z@x.com', password: 'password1' });
+  const fd = new FormData();
+  fd.append('file', new Blob([html]), 'grade10.xls');
+  fd.append('file', new Blob(['الاسم,الشعبة\nفهد,1\n']), 'g9.csv');
+  fd.append('grade', '9');
+  const up = (await a('POST', '/api/admin/students/upload', fd, true)).data;
+  assert.equal(up.added, 3);
+  assert.equal(up.files.length, 2);
+  const secs = (await a('GET', '/api/admin/sections')).data.map((s) => `${s.grade}/${s.section}`);
+  assert.deepEqual(secs, ['9/1', '10/3']);
+
+  // لصق الأسماء (من Excel: تسلسل + رقم + اسم)
+  const p = (await a('POST', '/api/admin/students/paste', { grade: '11', section: '2', names: '1\t650620150082\tأحمد بن سعيد\nخالد بن عمر\n\nخالد بن عمر' })).data;
+  assert.deepEqual([p.added, p.skipped], [2, 1]);
+  const st = (await a('GET', '/api/admin/students?q=' + encodeURIComponent('أحمد بن سعيد'))).data[0];
+  assert.equal(st.student_no, '650620150082');
+  assert.equal(`${st.grade}/${st.section}`, '11/2');
+});
+
+test('تحديث القائمة بملف شعبة واحدة لا يمس الشعب الأخرى', async () => {
+  const a = client();
+  await register(a, { schoolName: 'ح', adminName: 'م', email: 'scope@x.com', password: 'password1' });
+  const up = (text, extra = {}) => { const fd = new FormData(); fd.append('file', new Blob([text]), 's.csv'); for (const [k, v] of Object.entries(extra)) fd.append(k, v); return a('POST', '/api/admin/students/upload', fd, true); };
+  await up('الاسم,الصف,الشعبة\nأ,12,1\nب,12,1\nج,12,2\nد,12,2\n');
+  // ملف الشعبة 1 فقط بعد خروج «ب»
+  const p = (await up('الاسم,الصف,الشعبة\nأ,12,1\n', { mode: 'sync', dry_run: '1' })).data;
+  assert.equal(p.summary.missing, 1);        // «ب» فقط، وليس طلاب الشعبة 2
+  assert.equal(p.missing[0].name, 'ب');
+  const all = (await up('الاسم,الصف,الشعبة\nأ,12,1\n', { mode: 'sync', dry_run: '1', scope: 'all' })).data;
+  assert.equal(all.summary.missing, 3);
 });

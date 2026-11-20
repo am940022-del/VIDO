@@ -142,9 +142,11 @@
     <section data-panel="students" class="stack-lg hidden" style="margin-top:16px">
       <div class="card">
         <h3 class="card-title">رفع أو تحديث قائمة الطلاب</h3>
-        <p class="card-sub">ملف Excel (xlsx) أو CSV بالأعمدة: <strong>اسم الطالب، الصف، الشعبة</strong> (واختيارياً: رقم الطالب، جوال ولي الأمر). <a href="/api/admin/templates/students.xlsx">تحميل القالب</a></p>
-        <form id="s-upload" class="inline-fields">
-          <div class="field"><label for="s-file">الملف</label><input id="s-file" name="file" type="file" accept=".xlsx,.csv" required></div>
+        <p class="card-sub">يقبل ملفات Excel (<bdi>xlsx</bdi> و<bdi>xls</bdi>) و<bdi>CSV</bdi>، ومنها <strong>ملفات الوزارة لكل شعبة كما هي</strong> (الصف يُقرأ من عنوان الملف). يمكنك اختيار عدة ملفات معاً (ملف لكل شعبة).
+          أو استخدم القالب بالأعمدة: اسم الطالب، الصف، الشعبة. <a href="/api/admin/templates/students.xlsx">تحميل القالب</a></p>
+        <form id="s-upload" class="stack">
+          <div class="inline-fields">
+          <div class="field"><label for="s-file">الملفات</label><input id="s-file" name="file" type="file" accept=".xlsx,.xls,.csv" multiple required></div>
           <div class="field"><label for="s-mode">طريقة الرفع</label>
             <select id="s-mode" name="mode">
               <option value="sync">تحديث القائمة — نقل وإضافة ومعالجة الغائبين عن الملف (موصى به)</option>
@@ -153,6 +155,16 @@
             </select>
           </div>
           <button class="btn btn-primary" type="submit">متابعة</button>
+          </div>
+          <details>
+            <summary class="muted small" style="cursor:pointer">خيارات إضافية</summary>
+            <div class="inline-fields" style="margin-top:12px">
+              <div class="field"><label for="s-def-grade">الصف (إن لم يذكره الملف)</label><input id="s-def-grade" name="grade" list="grades-list" placeholder="مثال: 12"></div>
+              <div class="field"><label for="s-def-section">الشعبة (إن لم يذكرها الملف)</label><input id="s-def-section" name="section" placeholder="مثال: 3"></div>
+            </div>
+            <label class="row" style="margin-top:12px;gap:8px;font-weight:400"><input type="checkbox" class="check" id="s-scope" name="scope" value="all">
+              الملفات تحتوي <strong>كل طلاب المدرسة</strong> (عند التحديث: من ليس فيها من أي شعبة يُعتبر غير موجود)</label>
+          </details>
         </form>
         <div id="s-preview" class="hidden" style="margin-top:24px"></div>
       </div>
@@ -163,8 +175,23 @@
           <p class="muted small" style="margin-bottom:12px">«تعديل» يغيّر اسم الصف أو الشعبة، وإن كتبت اسم شعبة موجودة تُدمج الشعبتان.</p>
           <div class="table-wrap"><table><thead><tr><th>الصف</th><th>الشعبة</th><th>الطلاب</th><th>غير نشط</th><th></th></tr></thead><tbody id="s-sections"></tbody></table></div>
         </div>
+        <div class="stack">
         <div class="card">
-          <h3 class="card-title">إضافة طالب</h3>
+          <h3 class="card-title">إضافة يدوية: لصق قائمة أسماء</h3>
+          <p class="card-sub">اسم في كل سطر. يمكنك نسخ الأعمدة من Excel ولصقها مباشرة (الاسم ورقم الطالب)، وأرقام التسلسل تُتجاهل.</p>
+          <form id="s-paste">
+            <div class="inline-fields">
+              <div class="field"><label for="sp-grade">الصف</label><input id="sp-grade" name="grade" list="grades-list" required placeholder="مثال: 12"></div>
+              <div class="field"><label for="sp-section">الشعبة</label><input id="sp-section" name="section" required placeholder="مثال: 10"></div>
+            </div>
+            <div class="field" style="margin-top:16px"><label for="sp-names">الأسماء</label>
+              <textarea id="sp-names" name="names" rows="8" required placeholder="أحمد بن سعيد بن محمد&#10;خالد بن عمر بن سالم&#10;…"></textarea></div>
+            <p class="muted small" id="sp-count" style="margin-top:4px"></p>
+            <button class="btn btn-primary" style="margin-top:16px" type="submit">إضافة الأسماء</button>
+          </form>
+        </div>
+        <div class="card">
+          <h3 class="card-title">إضافة طالب واحد</h3>
           <form id="s-add">
             <div class="field"><label for="sa-name">الاسم</label><input id="sa-name" name="name" required></div>
             <div class="inline-fields" style="margin-top:16px">
@@ -178,6 +205,7 @@
             <button class="btn" style="margin-top:24px" type="submit">إضافة</button>
           </form>
           <datalist id="grades-list"></datalist>
+        </div>
         </div>
       </div>
 
@@ -249,7 +277,7 @@
           <h3 class="card-title">رفع قائمة المعلمين</h3>
           <p class="card-sub">ملف يحتوي عمود <strong>اسم المعلم</strong> (واختيارياً: المادة، الجوال). <a href="/api/admin/templates/teachers.xlsx">تحميل القالب</a></p>
           <form id="t-upload">
-            <div class="field"><label for="t-file">الملف</label><input id="t-file" name="file" type="file" accept=".xlsx,.csv" required></div>
+            <div class="field"><label for="t-file">الملف</label><input id="t-file" name="file" type="file" accept=".xlsx,.xls,.csv" required></div>
             <div class="field"><label for="t-mode">طريقة الرفع</label><select id="t-mode" name="mode"><option value="append">إضافة إلى الموجود</option><option value="replace">استبدال الكل</option></select></div>
             <button class="btn btn-primary" style="margin-top:24px" type="submit">رفع</button>
           </form>

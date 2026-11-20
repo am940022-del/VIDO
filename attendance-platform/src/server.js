@@ -43,7 +43,7 @@ app.use(cookieParser());
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => cb(null, /\.(xlsx|csv)$/i.test(file.originalname)),
+  fileFilter: (req, file, cb) => cb(null, /\.(xlsx|xls|csv|html?)$/i.test(file.originalname)),
 });
 
 /* ---------------- أدوات ---------------- */
@@ -317,7 +317,8 @@ function targetSection(schoolId, body) {
  *                يضيف الجدد، يعيد تفعيل العائدين، ويعالج من لم يرد في الملف حسب missing_action.
  *                مع dry_run=1 يعيد معاينة التغييرات دون تطبيقها.
  */
-function planSync(schoolId, list) {
+function planSync(schoolId, list, wholeSchool = false) {
+  const inFile = new Set(list.map((r) => `${r.grade}\u0000${r.section}`));
   const all = db.prepare(`SELECT st.id, st.name, st.student_no, st.guardian_phone, st.section_id, st.status, sec.grade, sec.section
     FROM students st JOIN sections sec ON sec.id = st.section_id WHERE st.school_id = ?`).all(schoolId);
   const byNo = new Map(), byName = new Map();
@@ -344,27 +345,36 @@ function planSync(schoolId, list) {
     else if (match.grade !== row.grade || match.section !== row.section) plan.moved.push(item);
     else plan.unchanged.push(item);
   }
-  for (const s of all) if (s.status === 'active' && !used.has(s.id)) plan.missing.push({ st: s, name: s.name, from: secText(s.grade, s.section) });
+  // «غير موجود في الملف» يُحسب فقط داخل الشعب الموجودة في الملف، إلا إذا كان الملف لكل المدرسة
+  for (const s of all) if (s.status === 'active' && !used.has(s.id) && (wholeSchool || inFile.has(`${s.grade}\u0000${s.section}`))) plan.missing.push({ st: s, name: s.name, from: secText(s.grade, s.section) });
   return plan;
 }
 
-admin.post('/students/upload', upload.single('file'), wrap(async (req, res) => {
-  if (!req.file) throw new HttpError(400, 'أرفق ملف Excel (xlsx) أو CSV');
-  let list;
-  try {
-    list = await xl.parseStudents(req.file.buffer, req.file.originalname);
-  } catch (e) {
-    throw new HttpError(400, e.message || 'تعذر قراءة الملف');
+admin.post('/students/upload', upload.array('file', 60), wrap(async (req, res) => {
+  if (!req.files || !req.files.length) throw new HttpError(400, 'أرفق ملف Excel (xlsx أو xls) أو CSV');
+  // عدة ملفات (مثل ملف لكل شعبة من نظام الوزارة) تُعامل كقائمة واحدة
+  let list = [];
+  const files = [];
+  for (const f of req.files) {
+    const name = Buffer.from(f.originalname, 'latin1').toString('utf8');
+    try {
+      const part = await xl.parseStudents(f.buffer, f.originalname, { grade: req.body.grade, section: req.body.section });
+      list = list.concat(part);
+      const secs = [...new Set(part.map((s) => secText(s.grade, s.section)))];
+      files.push({ name, students: part.length, sections: secs });
+    } catch (e) {
+      throw new HttpError(400, req.files.length > 1 ? `${name}: ${e.message}` : e.message || 'تعذر قراءة الملف');
+    }
   }
   if (!list.length) throw new HttpError(400, 'لم يتم العثور على طلاب في الملف');
   const mode = ['replace', 'sync'].includes(req.body.mode) ? req.body.mode : 'append';
 
   if (mode === 'sync') {
-    const plan = planSync(req.schoolId, list);
+    const plan = planSync(req.schoolId, list, req.body.scope === 'all');
     const view = (arr) => arr.slice(0, 300).map(({ name, from, to }) => ({ name, from, to }));
     const summary = Object.fromEntries(Object.entries(plan).map(([k, v]) => [k, v.length]));
     if (req.body.dry_run === '1') {
-      return res.json({ preview: true, summary, moved: view(plan.moved), reactivated: view(plan.reactivated), added: view(plan.added), missing: view(plan.missing), ambiguous: plan.ambiguous.slice(0, 300) });
+      return res.json({ preview: true, files, summary, moved: view(plan.moved), reactivated: view(plan.reactivated), added: view(plan.added), missing: view(plan.missing), ambiguous: plan.ambiguous.slice(0, 300) });
     }
     const missingAction = ['withdrawn', 'transferred'].includes(req.body.missing_action) ? req.body.missing_action : 'keep';
     const note = 'تحديث القائمة';
@@ -398,7 +408,7 @@ admin.post('/students/upload', upload.single('file'), wrap(async (req, res) => {
     }
   })();
   const sections = db.prepare('SELECT COUNT(*) AS n FROM sections WHERE school_id = ?').get(req.schoolId).n;
-  res.json({ added, skipped, sections });
+  res.json({ added, skipped, sections, files });
 }));
 
 admin.get('/students', (req, res) => {
@@ -437,6 +447,32 @@ admin.post('/students', (req, res) => {
     .run(req.schoolId, secId, name, str(req.body.student_no, 40) || null, str(req.body.guardian_phone, 30) || null);
   logEvent(req.schoolId, r.lastInsertRowid, 'created', null, secText(grade, section), 'إضافة يدوية');
   res.json({ ok: true });
+});
+
+/** إضافة يدوية سريعة: لصق الأسماء (اسم في كل سطر، ويمكن أن يكون معه رقم الطالب) لشعبة واحدة */
+admin.post('/students/paste', (req, res) => {
+  const grade = xl.normGrade(str(req.body.grade, 60)), section = xl.normSection(str(req.body.section, 30));
+  if (!grade || !section) throw new HttpError(400, 'حدد الصف والشعبة');
+  const lines = String(req.body.names || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 500);
+  if (!lines.length) throw new HttpError(400, 'اكتب اسماً واحداً على الأقل');
+  const secId = getOrCreateSection(req.schoolId, grade, section);
+  const exists = db.prepare('SELECT 1 FROM students WHERE section_id = ? AND name = ?');
+  const ins = db.prepare('INSERT INTO students (school_id, section_id, name, student_no) VALUES (?,?,?,?)');
+  let added = 0, skipped = 0;
+  db.transaction(() => {
+    for (const line of lines) {
+      // أعمدة منسوخة من Excel (Tab) أو مفصولة بفاصلة: الاسم + رقم الطالب بأي ترتيب، ويُتجاهل رقم التسلسل
+      const parts = line.split(/\t|,|،/).map((p) => p.trim()).filter(Boolean);
+      const name = (parts.find((p) => /[\u0600-\u06FFa-z]/i.test(p) && !/^\d+$/.test(p)) || '').replace(/\s+/g, ' ').slice(0, 200);
+      const no = parts.filter((p) => /^\d{5,}$/.test(xl.latinDigits(p))).map((p) => xl.latinDigits(p))[0] || null;
+      if (!name) { skipped++; continue; }
+      if (exists.get(secId, name)) { skipped++; continue; }
+      const r = ins.run(req.schoolId, secId, name, no);
+      logEvent(req.schoolId, r.lastInsertRowid, 'created', null, secText(grade, section), 'إضافة يدوية');
+      added++;
+    }
+  })();
+  res.json({ ok: true, added, skipped, section: secText(grade, section) });
 });
 
 /** تعديل جزئي: البيانات، النقل لشعبة أخرى، والحالة (نشط/منقطع/منتقل) */
