@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>رصد الحضور</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="container">
+      <span class="brand"><span class="brand-mark" aria-hidden="true">✓</span><span id="school-name">رصد الحضور</span></span>
+      <span class="grow"></span>
+      <span class="muted small" id="today"></span>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="error" class="alert alert-error hidden" role="alert" style="margin-top:24px"></div>
+
+    <!-- 1) اختيار الصف -->
+    <section id="view-grades" class="hidden">
+      <div class="teacher-head stack">
+        <div>
+          <label for="teacher-select">اسم المعلم</label>
+          <select id="teacher-select"><option value="">— اختر اسمك —</option></select>
+        </div>
+      </div>
+      <p class="step-title">اختر الصف</p>
+      <div class="tiles" id="grade-tiles"></div>
+      <p id="no-grades" class="empty hidden">لم ترفع الإدارة قوائم الطلاب بعد.</p>
+    </section>
+
+    <!-- 2) اختيار الشعبة والحصة -->
+    <section id="view-pick" class="hidden">
+      <div class="teacher-head row">
+        <button class="btn btn-ghost" id="back-grades" type="button">→ الصفوف</button>
+        <h1 id="pick-grade" class="grow"></h1>
+      </div>
+      <div class="stack-lg">
+        <div>
+          <p class="step-title">الشعبة</p>
+          <div class="chips" id="section-chips"></div>
+        </div>
+        <div>
+          <p class="step-title">الحصة</p>
+          <div class="chips" id="period-chips"></div>
+        </div>
+        <button class="btn btn-primary btn-block" id="open-list" type="button" disabled>عرض قائمة الطلاب</button>
+      </div>
+    </section>
+
+    <!-- 3) قائمة الطلاب -->
+    <section id="view-list" class="hidden">
+      <div class="teacher-head row between">
+        <div class="crumbs" id="crumbs"></div>
+        <button class="btn btn-sm" id="change-pick" type="button">تغيير</button>
+      </div>
+      <div class="sticky-tools">
+        <div class="search">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="search" type="search" placeholder="ابحث باسم الطالب" autocomplete="off" aria-label="ابحث باسم الطالب">
+        </div>
+        <div class="summary-bar" id="summary"></div>
+      </div>
+      <div class="students" id="students"></div>
+    </section>
+  </main>
+
+  <div id="sheet" class="sheet-backdrop hidden">
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-name">
+      <p class="muted small">حدد حالة الطالب في هذه الحصة</p>
+      <h3 id="sheet-name"></h3>
+      <div class="choice-grid">
+        <button class="choice absent" data-type="absent" type="button">غياب<small>لم يحضر</small></button>
+        <button class="choice late" data-type="late" type="button">تأخير<small>حضر متأخراً</small></button>
+        <button class="choice escape" data-type="escape" type="button">هروب<small>خرج دون إذن</small></button>
+      </div>
+      <div class="field" style="margin-top:24px">
+        <label for="sheet-note">ملاحظة (اختياري)</label>
+        <input id="sheet-note" maxlength="300">
+      </div>
+      <div class="row" style="margin-top:24px">
+        <button class="btn btn-danger hidden" id="sheet-clear" type="button">إزالة الرصد (حاضر)</button>
+        <span class="grow"></span>
+        <button class="btn btn-ghost" id="sheet-cancel" type="button">إلغاء</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/common.js"></script>
+  <script src="/teacher.js"></script>
+</body>
+</html>

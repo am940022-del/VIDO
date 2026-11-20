@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>لوحة المدير</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="container">
+      <span class="brand"><span class="brand-mark" aria-hidden="true">✓</span><span id="school-name">لوحة المدير</span></span>
+      <span class="grow"></span>
+      <button class="btn btn-ghost btn-sm" id="logout" type="button">خروج</button>
+    </div>
+  </header>
+
+  <nav class="container" aria-label="أقسام اللوحة">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="overview" aria-selected="true">الإحصائيات</button>
+      <button class="tab" role="tab" data-tab="records">السجلات</button>
+      <button class="tab" role="tab" data-tab="students">الطلاب والصفوف</button>
+      <button class="tab" role="tab" data-tab="teachers">المعلمون</button>
+      <button class="tab" role="tab" data-tab="periods">الحصص</button>
+      <button class="tab" role="tab" data-tab="settings">الإعدادات</button>
+    </div>
+  </nav>
+
+  <main class="container" style="padding-bottom:64px">
+
+    <!-- تنبيه البدء -->
+    <section id="setup-hint" class="card hidden" style="margin:16px 0 24px">
+      <h3 class="card-title">ابدأ بإعداد مدرستك</h3>
+      <ol class="muted" style="margin:0;padding-inline-start:24px">
+        <li>ارفع قائمة الطلاب من تبويب «الطلاب والصفوف» (الاسم، الصف، الشعبة).</li>
+        <li>ارفع قائمة المعلمين من تبويب «المعلمون».</li>
+        <li>حدد عدد الحصص وأوقاتها من تبويب «الحصص».</li>
+        <li>انسخ رابط المعلمين من الأسفل وأرسله لهم.</li>
+      </ol>
+    </section>
+
+    <!-- ===== الإحصائيات ===== -->
+    <section data-panel="overview" class="stack-lg" style="margin-top:16px">
+      <div class="card">
+        <div class="row between">
+          <div>
+            <h3>رابط المعلمين</h3>
+            <p class="muted small">أرسل هذا الرابط للمعلمين فقط. يرصدون من خلاله دون تسجيل دخول.</p>
+          </div>
+        </div>
+        <div class="link-box" style="margin-top:12px"><code class="teacher-link"></code><button class="btn btn-sm copy-link" type="button">نسخ</button></div>
+      </div>
+
+      <div class="card">
+        <div class="inline-fields">
+          <div class="field"><label for="o-from">من</label><input type="date" id="o-from"></div>
+          <div class="field"><label for="o-to">إلى</label><input type="date" id="o-to"></div>
+          <div class="row">
+            <button class="btn btn-sm" data-range="today" type="button">اليوم</button>
+            <button class="btn btn-sm" data-range="week" type="button">آخر 7 أيام</button>
+            <button class="btn btn-sm" data-range="month" type="button">هذا الشهر</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-4" id="o-totals"></div>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <h3 class="card-title">حسب الصف والشعبة</h3>
+          <div class="legend" style="margin-bottom:16px"><span><i style="background:var(--absent)"></i>غياب</span><span><i style="background:var(--late)"></i>تأخير</span><span><i style="background:var(--escape)"></i>هروب</span></div>
+          <div class="bars" id="o-sections"></div>
+        </div>
+        <div class="card">
+          <h3 class="card-title">حسب الحصة</h3>
+          <div class="legend" style="margin-bottom:16px"><span><i style="background:var(--absent)"></i>غياب</span><span><i style="background:var(--late)"></i>تأخير</span><span><i style="background:var(--escape)"></i>هروب</span></div>
+          <div class="bars" id="o-periods"></div>
+        </div>
+      </div>
+
+      <div class="grid grid-2" id="o-top"></div>
+
+      <div>
+        <div class="row between" style="margin-bottom:12px">
+          <h2>ملخص الطلاب</h2>
+          <div class="row">
+            <button class="btn btn-sm" id="o-xlsx" type="button">تصدير Excel</button>
+            <button class="btn btn-sm" id="o-pdf" type="button">تقرير PDF</button>
+          </div>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>#</th><th>الطالب</th><th>الصف</th><th>الشعبة</th><th>غياب</th><th>تأخير</th><th>هروب</th><th>المجموع</th></tr></thead><tbody id="o-students"></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- ===== السجلات ===== -->
+    <section data-panel="records" class="stack hidden" style="margin-top:16px">
+      <div class="card">
+        <div class="inline-fields">
+          <div class="field"><label for="r-from">من</label><input type="date" id="r-from"></div>
+          <div class="field"><label for="r-to">إلى</label><input type="date" id="r-to"></div>
+          <div class="field"><label for="r-grade">الصف</label><select id="r-grade"><option value="">الكل</option></select></div>
+          <div class="field"><label for="r-section">الشعبة</label><select id="r-section"><option value="">الكل</option></select></div>
+          <div class="field"><label for="r-type">الحالة</label><select id="r-type"><option value="">الكل</option><option value="absent">غياب</option><option value="late">تأخير</option><option value="escape">هروب</option></select></div>
+          <div class="field"><label for="r-q">اسم الطالب</label><input id="r-q" type="search"></div>
+        </div>
+        <div class="row" style="margin-top:16px">
+          <button class="btn btn-primary" id="r-apply" type="button">عرض</button>
+          <span class="grow"></span>
+          <button class="btn" id="r-xlsx" type="button">تصدير Excel</button>
+          <button class="btn" id="r-pdf" type="button">تقرير PDF</button>
+        </div>
+      </div>
+      <p class="muted small" id="r-count"></p>
+      <div class="table-wrap"><table><thead><tr><th>التاريخ</th><th>الحصة</th><th>الطالب</th><th>الصف</th><th>الشعبة</th><th>الحالة</th><th>المعلم</th><th>ملاحظة</th><th></th></tr></thead><tbody id="r-body"></tbody></table></div>
+    </section>
+
+    <!-- ===== الطلاب ===== -->
+    <section data-panel="students" class="stack-lg hidden" style="margin-top:16px">
+      <div class="card">
+        <h3 class="card-title">رفع قائمة الطلاب</h3>
+        <p class="card-sub">ملف Excel (xlsx) أو CSV يحتوي الأعمدة: <strong>اسم الطالب، الصف، الشعبة</strong> (واختيارياً: رقم الطالب، جوال ولي الأمر). سيتم توزيع الطلاب على الصفوف والشعب تلقائياً. <a href="/api/admin/templates/students.xlsx">تحميل القالب</a></p>
+        <form id="s-upload" class="inline-fields">
+          <div class="field"><label for="s-file">الملف</label><input id="s-file" name="file" type="file" accept=".xlsx,.csv" required></div>
+          <div class="field"><label for="s-mode">طريقة الرفع</label><select id="s-mode" name="mode"><option value="append">إضافة إلى الموجود</option><option value="replace">استبدال الكل (يحذف الطلاب وسجلاتهم الحالية)</option></select></div>
+          <button class="btn btn-primary" type="submit">رفع</button>
+        </form>
+      </div>
+
+      <div class="grid grid-2" style="align-items:start">
+        <div>
+          <h2 style="margin-bottom:12px">الصفوف والشعب</h2>
+          <div class="table-wrap"><table><thead><tr><th>الصف</th><th>الشعبة</th><th>الطلاب</th><th></th></tr></thead><tbody id="s-sections"></tbody></table></div>
+        </div>
+        <div class="card">
+          <h3 class="card-title">إضافة طالب</h3>
+          <form id="s-add">
+            <div class="field"><label for="sa-name">الاسم</label><input id="sa-name" name="name" required></div>
+            <div class="inline-fields" style="margin-top:16px">
+              <div class="field"><label for="sa-grade">الصف</label><input id="sa-grade" name="grade" list="grades-list" required></div>
+              <div class="field"><label for="sa-section">الشعبة</label><input id="sa-section" name="section" required></div>
+            </div>
+            <div class="inline-fields" style="margin-top:16px">
+              <div class="field"><label for="sa-no">رقم الطالب</label><input id="sa-no" name="student_no"></div>
+              <div class="field"><label for="sa-phone">جوال ولي الأمر</label><input id="sa-phone" name="guardian_phone" dir="ltr"></div>
+            </div>
+            <button class="btn" style="margin-top:24px" type="submit">إضافة</button>
+          </form>
+          <datalist id="grades-list"></datalist>
+        </div>
+      </div>
+
+      <div>
+        <div class="row between" style="margin-bottom:12px">
+          <h2>قائمة الطلاب</h2>
+          <div class="row">
+            <select id="s-filter-section" style="width:auto"><option value="">كل الشعب</option></select>
+            <input id="s-q" type="search" placeholder="بحث بالاسم" style="width:200px">
+          </div>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>#</th><th>الاسم</th><th>الصف</th><th>الشعبة</th><th>رقم الطالب</th><th>جوال ولي الأمر</th><th></th></tr></thead><tbody id="s-list"></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- ===== المعلمون ===== -->
+    <section data-panel="teachers" class="stack-lg hidden" style="margin-top:16px">
+      <div class="grid grid-2" style="align-items:start">
+        <div class="card">
+          <h3 class="card-title">رفع قائمة المعلمين</h3>
+          <p class="card-sub">ملف يحتوي عمود <strong>اسم المعلم</strong> (واختيارياً: المادة، الجوال). <a href="/api/admin/templates/teachers.xlsx">تحميل القالب</a></p>
+          <form id="t-upload">
+            <div class="field"><label for="t-file">الملف</label><input id="t-file" name="file" type="file" accept=".xlsx,.csv" required></div>
+            <div class="field"><label for="t-mode">طريقة الرفع</label><select id="t-mode" name="mode"><option value="append">إضافة إلى الموجود</option><option value="replace">استبدال الكل</option></select></div>
+            <button class="btn btn-primary" style="margin-top:24px" type="submit">رفع</button>
+          </form>
+        </div>
+        <div class="card">
+          <h3 class="card-title">إضافة معلم</h3>
+          <form id="t-add">
+            <div class="field"><label for="ta-name">الاسم</label><input id="ta-name" name="name" required></div>
+            <div class="field"><label for="ta-subject">المادة</label><input id="ta-subject" name="subject"></div>
+            <div class="field"><label for="ta-phone">الجوال</label><input id="ta-phone" name="phone" dir="ltr"></div>
+            <button class="btn" style="margin-top:24px" type="submit">إضافة</button>
+          </form>
+        </div>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>الاسم</th><th>المادة</th><th>الجوال</th><th>عدد الرصد</th><th></th></tr></thead><tbody id="t-list"></tbody></table></div>
+    </section>
+
+    <!-- ===== الحصص ===== -->
+    <section data-panel="periods" class="hidden" style="margin-top:16px">
+      <div class="card narrow">
+        <h3 class="card-title">إعداد الحصص</h3>
+        <p class="card-sub">حدد عدد الحصص اليومية. الأوقات اختيارية، وعند تحديدها تختار المنصة الحصة الحالية تلقائياً للمعلم.</p>
+        <div class="field"><label for="p-count">عدد الحصص</label><input id="p-count" type="number" min="1" max="12"></div>
+        <div id="p-list" class="stack" style="margin-top:24px"></div>
+        <button class="btn btn-primary" id="p-save" style="margin-top:24px" type="button">حفظ</button>
+      </div>
+    </section>
+
+    <!-- ===== الإعدادات ===== -->
+    <section data-panel="settings" class="stack-lg hidden" style="margin-top:16px">
+      <div class="card">
+        <h3 class="card-title">رابط المعلمين</h3>
+        <p class="card-sub">هذا الرابط خاص بمدرستك فقط. إذا تسرّب لأشخاص غير مخولين، أنشئ رابطاً جديداً وسيتوقف الرابط القديم فوراً.</p>
+        <div class="link-box"><code class="teacher-link"></code><button class="btn btn-sm copy-link" type="button">نسخ</button></div>
+        <button class="btn btn-danger" id="rotate" style="margin-top:16px" type="button">إنشاء رابط جديد</button>
+      </div>
+      <div class="grid grid-2" style="align-items:start">
+        <form class="card" id="set-school">
+          <h3 class="card-title">بيانات المدرسة</h3>
+          <div class="field"><label for="ss-name">اسم المدرسة</label><input id="ss-name" name="name" required></div>
+          <div class="field"><label for="ss-admin">اسم المدير</label><input id="ss-admin" name="adminName" required></div>
+          <button class="btn" style="margin-top:24px" type="submit">حفظ</button>
+        </form>
+        <form class="card" id="set-pass">
+          <h3 class="card-title">تغيير كلمة المرور</h3>
+          <div class="field"><label for="sp-cur">كلمة المرور الحالية</label><input id="sp-cur" name="current" type="password" autocomplete="current-password" required></div>
+          <div class="field"><label for="sp-new">كلمة المرور الجديدة</label><input id="sp-new" name="next" type="password" autocomplete="new-password" minlength="8" required></div>
+          <button class="btn" style="margin-top:24px" type="submit">تغيير</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <script src="/common.js"></script>
+  <script src="/admin.js"></script>
+</body>
+</html>
