@@ -123,8 +123,9 @@ app.post('/api/register', authLimiter, wrap(async (req, res) => {
   if (db.prepare('SELECT 1 FROM schools WHERE email = ?').get(email)) throw new HttpError(409, 'هذا البريد مسجّل مسبقاً');
 
   const hash = await bcrypt.hash(password, 11);
-  const info = db.prepare('INSERT INTO schools (name, admin_name, email, password_hash, teacher_token) VALUES (?,?,?,?,?)')
-    .run(schoolName, adminName, email, hash, newToken(18));
+  const cc = String(process.env.DEFAULT_COUNTRY_CODE || '966').replace(/\D/g, '').slice(0, 4) || '966';
+  const info = db.prepare('INSERT INTO schools (name, admin_name, email, password_hash, teacher_token, country_code) VALUES (?,?,?,?,?,?)')
+    .run(schoolName, adminName, email, hash, newToken(18), cc);
   // حصص افتراضية: 7 حصص
   const ins = db.prepare('INSERT INTO periods (school_id, number) VALUES (?, ?)');
   for (let i = 1; i <= 7; i++) ins.run(info.lastInsertRowid, i);

@@ -33,6 +33,35 @@ npm test           # اختبارات الـ API والعزل بين المدا�
 
 ## النشر على خادم
 
+### على نفس خادم إنتماء ودفتر (بدون تكلفة إضافية)
+
+سكربت التثبيت يكتشف إنتماء في `/opt/athar` تلقائياً، ويعمل بنفس طريقة دفتر:
+- لا تشغّل المنصة Caddy خاصاً بها؛ Caddy إنتماء يستقبل زوار المنصات الثلاث.
+- تنضم المنصة لشبكة `edge` المشتركة باسم `attendance-app`.
+- يحدّث الملف `/opt/athar/deploy/docker-compose.override.yml` ليشمل المنصة **مع الإبقاء على دفتر كما هو**، ويحتفظ بنسخة من الملف السابق، ويتراجع تلقائياً إن فشل إعداد Caddy.
+- كود إنتماء ودفتر لا يتغير.
+
+**1. سجل DNS**: أضف سجل `A` للنطاق الفرعي (مثل `attendance.<نطاق إنتماء>`) يشير إلى عنوان IP الخادم نفسه.
+
+**2. على الخادم:**
+```bash
+ssh root@<IP>
+git clone -b claude/student-attendance-platform-9sl3hj https://github.com/am940022-del/VIDO.git /opt/vido
+cd /opt/vido/attendance-platform && sudo bash deploy/install.sh
+```
+اضغط Enter لقبول القيم المقترحة (النطاق `attendance.<نطاق إنتماء>`، المنطقة الزمنية `Asia/Muscat`، رمز الدولة `968`).
+
+**3.** افتح `https://attendance.<نطاق إنتماء>` وسجّل المدرسة الأولى.
+
+| المهمة | الأمر (من `/opt/vido/attendance-platform`) |
+|---|---|
+| نشر نسخة جديدة | `sudo bash deploy/update.sh` (يأخذ نسخة احتياطية أولاً) |
+| حالة المنصة | `docker compose ps` |
+| السجلات | `docker compose logs -f app` |
+
+**مهم:** إن أعدت تشغيل سكربت تثبيت **دفتر** (`/opt/dafter/deploy/install.sh`) فإنه يعيد كتابة ملف Caddy المشترك، فأعد بعده تشغيل `sudo bash deploy/install.sh` لمنصة الحضور (دقيقة واحدة، والبيانات محفوظة). أما `update.sh` لدفتر أو إنتماء فلا يؤثر.
+
+
 ### الطريقة الموصى بها: خادم VPS + Docker (HTTPS تلقائي)
 
 يكفي خادم صغير (1 معالج، 1 جيجابايت ذاكرة) من أي مزود (Hetzner، DigitalOcean، AWS Lightsail، أو مزود محلي)، ويخدم عشرات المدارس.

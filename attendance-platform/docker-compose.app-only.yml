@@ -1,9 +1,11 @@
 # للخوادم التي عليها منصات أخرى وخادم ويب موجود (Nginx/Apache/Caddy) يستخدم المنفذين 80 و443:
 # التطبيق يعمل على 127.0.0.1:${APP_PORT} فقط، وخادم الويب الموجود يمرّر إليه (انظر deploy/nginx.conf)
 #   docker compose -f docker-compose.app-only.yml up -d --build
+name: attendance
 services:
   app:
     build: .
+    image: attendance-platform:latest
     restart: unless-stopped
     env_file: .env
     environment:

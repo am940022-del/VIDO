@@ -1,0 +1,27 @@
+# عند تشغيل المنصة على نفس خادم إنتماء/دفتر: Caddy الخاص بإنتماء يملك المنفذين 80/443
+# ويخدم المنصات كلها. هذه المنصة لا تشغّل Caddy خاصاً بها، وتنضم لشبكة "edge" المشتركة
+# باسم "attendance-app". يضبطه deploy/install.sh تلقائياً (COMPOSE_FILE في .env).
+name: attendance
+services:
+  app:
+    build: .
+    image: attendance-platform:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+    volumes:
+      - app-data:/data
+    networks:
+      default: {}
+      edge:
+        aliases: [attendance-app]
+
+volumes:
+  app-data:
+
+networks:
+  edge:
+    external: true
+    name: edge

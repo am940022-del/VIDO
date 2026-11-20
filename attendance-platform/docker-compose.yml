@@ -1,9 +1,11 @@
 # تشغيل المنصة مع HTTPS تلقائي (Caddy + Let's Encrypt)
 #   cp .env.example .env   ثم عدّل DOMAIN
 #   docker compose up -d --build
+name: attendance
 services:
   app:
     build: .
+    image: attendance-platform:latest
     restart: unless-stopped
     env_file: .env
     environment:
