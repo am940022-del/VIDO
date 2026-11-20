@@ -109,7 +109,7 @@ app.get('/healthz', (req, res) => {
 
 /* ---------------- مصادقة المدير ---------------- */
 
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'محاولات كثيرة، حاول لاحقاً' } });
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: Number(process.env.AUTH_RATE_LIMIT) || 20, standardHeaders: true, legacyHeaders: false, message: { error: 'محاولات كثيرة، حاول لاحقاً' } });
 
 function setSession(res, schoolId) {
   const token = newToken(32);
@@ -528,7 +528,7 @@ admin.delete('/students/:id', (req, res) => {
 /* --- المعلمون --- */
 
 admin.get('/teachers', (req, res) => {
-  res.json(db.prepare(`SELECT t.id, t.name, t.subject, t.phone,
+  res.json(db.prepare(`SELECT t.id, t.name, t.subject, t.phone, t.job,
       (SELECT COUNT(*) FROM records r WHERE r.teacher_id = t.id) AS records
     FROM teachers t WHERE t.school_id = ? ORDER BY t.name`).all(req.schoolId));
 });
@@ -540,28 +540,96 @@ admin.post('/teachers', (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * رفع ملف المعلمين. ملف موظفي المدرسة من الوزارة يُقرأ كما هو: المعلمون فقط افتراضياً
+ * (staff=all لاستيراد كل الموظفين)، والمادة من المسمى الوظيفي.
+ * dry_run=1 يعرض المعاينة دون حفظ. المعلم الموجود بنفس الاسم تُحدّث مادته وجواله.
+ */
 admin.post('/teachers/upload', upload.single('file'), wrap(async (req, res) => {
-  if (!req.file) throw new HttpError(400, 'أرفق ملف Excel (xlsx) أو CSV');
-  let list;
+  if (!req.file) throw new HttpError(400, 'أرفق ملف Excel (xlsx أو xls) أو CSV');
+  let all;
   try {
-    list = await xl.parseTeachers(req.file.buffer, req.file.originalname);
+    all = await xl.parseTeachers(req.file.buffer, req.file.originalname);
   } catch (e) {
     throw new HttpError(400, e.message || 'تعذر قراءة الملف');
   }
+  const list = req.body.staff === 'all' ? all : all.filter((t) => t.is_teacher);
+  const others = all.filter((t) => !t.is_teacher);
   if (!list.length) throw new HttpError(400, 'لم يتم العثور على معلمين في الملف');
-  let added = 0, skipped = 0;
+  const subjects = {};
+  for (const t of list) subjects[t.subject || 'بدون مادة'] = (subjects[t.subject || 'بدون مادة'] || 0) + 1;
+  const summary = { total: all.length, teachers: all.length - others.length, others: others.length, importing: list.length };
+  if (req.body.dry_run === '1') {
+    return res.json({ preview: true, summary, subjects, others: others.map((t) => ({ name: t.name, job: t.job })), sample: list.slice(0, 300).map(({ name, subject, job }) => ({ name, subject, job })) });
+  }
+  let added = 0, updated = 0;
   db.transaction(() => {
     if (req.body.mode === 'replace') db.prepare('DELETE FROM teachers WHERE school_id = ?').run(req.schoolId);
-    const exists = db.prepare('SELECT 1 FROM teachers WHERE school_id = ? AND name = ?');
-    const ins = db.prepare('INSERT INTO teachers (school_id, name, subject, phone) VALUES (?,?,?,?)');
+    const find = db.prepare('SELECT id FROM teachers WHERE school_id = ? AND name = ?');
+    const ins = db.prepare('INSERT INTO teachers (school_id, name, subject, phone, job) VALUES (?,?,?,?,?)');
+    const upd = db.prepare('UPDATE teachers SET subject = COALESCE(?, subject), phone = COALESCE(?, phone), job = COALESCE(?, job) WHERE id = ?');
     for (const t of list) {
-      if (exists.get(req.schoolId, t.name)) { skipped++; continue; }
-      ins.run(req.schoolId, t.name, t.subject, t.phone);
+      const ex = find.get(req.schoolId, t.name);
+      if (ex) { upd.run(t.subject, t.phone, t.job, ex.id); updated++; continue; }
+      ins.run(req.schoolId, t.name, t.subject, t.phone, t.job);
       added++;
     }
   })();
-  res.json({ added, skipped });
+  res.json({ added, updated, skipped: 0, summary, subjects });
 }));
+
+/** إدخال جماعي: اسم في كل سطر، ومادة واحدة للجميع أو مادة بجانب كل اسم (مفصولة بفاصلة أو Tab) */
+admin.post('/teachers/paste', (req, res) => {
+  const common = xl.normSubject(str(req.body.subject, 80));
+  const lines = String(req.body.names || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 300);
+  if (!lines.length) throw new HttpError(400, 'اكتب اسماً واحداً على الأقل');
+  const find = db.prepare('SELECT id FROM teachers WHERE school_id = ? AND name = ?');
+  const ins = db.prepare('INSERT INTO teachers (school_id, name, subject, phone) VALUES (?,?,?,?)');
+  const upd = db.prepare('UPDATE teachers SET subject = COALESCE(?, subject), phone = COALESCE(?, phone) WHERE id = ?');
+  let added = 0, updated = 0, skipped = 0;
+  db.transaction(() => {
+    for (const line of lines) {
+      const parts = line.split(/\t|,|،/).map((p) => p.trim()).filter(Boolean);
+      const texts = parts.filter((p) => /[؀-ۿa-z]/i.test(p));
+      const name = (texts[0] || '').replace(/\s+/g, ' ').slice(0, 200);
+      if (!name) { skipped++; continue; }
+      // مادة السطر: النص الثاني، أو المادة من مسمى مثل «معلم مادة رياضيات»
+      const rest = texts[1] || '';
+      const subject = (rest && (xl.subjectFromJob(rest) || xl.normSubject(rest))) || common;
+      const phone = parts.map((p) => xl.latinDigits(p)).find((p) => /^\+?\d{8,15}$/.test(p)) || null;
+      const ex = find.get(req.schoolId, name);
+      if (ex) { upd.run(subject, phone, ex.id); updated++; } else { ins.run(req.schoolId, name, subject, phone); added++; }
+    }
+  })();
+  res.json({ ok: true, added, updated, skipped });
+});
+
+/** تعديل معلم، أو تعيين مادة لعدة معلمين دفعة واحدة */
+admin.patch('/teachers/:id', (req, res) => {
+  const t = db.prepare('SELECT id FROM teachers WHERE id = ? AND school_id = ?').get(Number(req.params.id), req.schoolId);
+  if (!t) throw new HttpError(404, 'المعلم غير موجود');
+  if (req.body.name !== undefined) {
+    const name = str(req.body.name);
+    if (!name) throw new HttpError(400, 'الاسم مطلوب');
+    db.prepare('UPDATE teachers SET name = ? WHERE id = ?').run(name, t.id);
+  }
+  if (req.body.subject !== undefined) db.prepare('UPDATE teachers SET subject = ? WHERE id = ?').run(xl.normSubject(str(req.body.subject, 80)), t.id);
+  if (req.body.phone !== undefined) db.prepare('UPDATE teachers SET phone = ? WHERE id = ?').run(str(req.body.phone, 30) || null, t.id);
+  res.json({ ok: true });
+});
+
+admin.post('/teachers/bulk', (req, res) => {
+  const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(Number).filter(Boolean).slice(0, 1000);
+  if (!ids.length) throw new HttpError(400, 'لم يتم اختيار معلمين');
+  const subject = xl.normSubject(str(req.body.subject, 80));
+  let changed = 0;
+  db.transaction(() => {
+    const upd = db.prepare('UPDATE teachers SET subject = ? WHERE id = ? AND school_id = ?');
+    const del = db.prepare('DELETE FROM teachers WHERE id = ? AND school_id = ?');
+    for (const id of ids) changed += (req.body.action === 'delete' ? del.run(id, req.schoolId) : upd.run(subject, id, req.schoolId)).changes;
+  })();
+  res.json({ ok: true, changed });
+});
 
 admin.delete('/teachers/:id', (req, res) => {
   db.prepare('DELETE FROM teachers WHERE id = ? AND school_id = ?').run(Number(req.params.id), req.schoolId);

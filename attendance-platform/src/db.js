@@ -154,4 +154,9 @@ if (!sessCols.includes('verified')) {
            ALTER TABLE owner_sessions ADD COLUMN failed INTEGER NOT NULL DEFAULT 0;`);
 }
 
+/* الوظيفة كما في ملف الموظفين (معلم مادة رياضيات، مدير مدرسة...) */
+if (!db.prepare('PRAGMA table_info(teachers)').all().some((c) => c.name === 'job')) {
+  db.exec('ALTER TABLE teachers ADD COLUMN job TEXT');
+}
+
 module.exports = db;

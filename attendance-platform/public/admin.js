@@ -496,26 +496,152 @@ document.addEventListener('click', async (e) => {
 });
 
 /* ---------- المعلمون ---------- */
+const DEFAULT_SUBJECTS = ['لغة عربية', 'لغة إنجليزية', 'رياضيات', 'فيزياء', 'كيمياء', 'أحياء', 'علوم', 'تربية إسلامية', 'تاريخ', 'جغرافيا',
+  'دراسات اجتماعية', 'تقنية المعلومات', 'رياضة مدرسية', 'فنون تشكيلية', 'مهارات موسيقية', 'مهارات حياتية'];
+let teachers = [];
+const tSelected = new Set();
+
 async function loadTeachers() {
-  const list = await api(`${A}/teachers`);
-  $('#t-list').innerHTML = list.length ? list.map((t, i) => `<tr><td class="num">${i + 1}</td><td>${esc(t.name)}</td><td>${esc(t.subject || '')}</td>
-    <td class="num" dir="ltr">${esc(t.phone || '')}</td><td class="num">${t.records}</td>
-    <td><button class="btn btn-ghost btn-sm btn-danger" data-del-teacher="${t.id}" type="button">حذف</button></td></tr>`).join('')
-    : '<tr><td colspan="6" class="empty">لا يوجد معلمون</td></tr>';
+  teachers = await api(`${A}/teachers`);
+  for (const id of [...tSelected]) if (!teachers.some((t) => t.id === id)) tSelected.delete(id);
+  const subjects = [...new Set([...teachers.map((t) => t.subject).filter(Boolean), ...DEFAULT_SUBJECTS])];
+  $('#subjects-list').innerHTML = subjects.map((x) => `<option value="${esc(x)}">`).join('');
+  const f = $('#t-filter');
+  const cur = f.value;
+  const counts = {};
+  teachers.forEach((t) => { const k = t.subject || ''; counts[k] = (counts[k] || 0) + 1; });
+  f.innerHTML = '<option value="">كل المواد</option>' + Object.keys(counts).sort((a, b) => a.localeCompare(b, 'ar'))
+    .map((k) => `<option value="${esc(k || '__none')}">${esc(k || 'بدون مادة')} (${counts[k]})</option>`).join('');
+  f.value = cur;
+  renderTeachers();
 }
+
+function renderTeachers() {
+  const q = normAr($('#t-q').value);
+  const sub = $('#t-filter').value;
+  const list = teachers.filter((t) => (!q || normAr(t.name).includes(q)) && (!sub || (sub === '__none' ? !t.subject : t.subject === sub)));
+  $('#t-count').textContent = `(${list.length})`;
+  $('#t-list').innerHTML = list.length ? list.map((t, i) => `<tr class="${tSelected.has(t.id) ? 'selected' : ''}">
+    <td><input type="checkbox" class="check" data-tpick="${t.id}" ${tSelected.has(t.id) ? 'checked' : ''} aria-label="تحديد ${esc(t.name)}"></td>
+    <td class="num">${i + 1}</td><td>${esc(t.name)}</td>
+    <td>${t.subject ? esc(t.subject) : '<span class="badge late">بدون مادة</span>'}</td>
+    <td class="small muted">${esc(t.job || '')}</td>
+    <td class="num"><bdi>${esc(t.phone || '')}</bdi></td><td class="num">${t.records}</td>
+    <td><div class="row" style="flex-wrap:nowrap;gap:4px">
+      <button class="btn btn-sm" data-edit-teacher="${t.id}" type="button">تعديل</button>
+      <button class="btn btn-ghost btn-sm btn-danger" data-del-teacher="${t.id}" type="button">حذف</button></div></td></tr>`).join('')
+    : '<tr><td colspan="8" class="empty">لا يوجد معلمون</td></tr>';
+  $('#t-bulk').classList.toggle('hidden', !tSelected.size);
+  $('#t-bulk-count').textContent = `${tSelected.size} معلم محدد`;
+  $('#t-all').checked = list.length > 0 && list.every((t) => tSelected.has(t.id));
+}
+
 loaders.teachers = () => loadTeachers().catch((e) => toast(e.message));
-$('#t-upload').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const btn = e.target.querySelector('button');
-  btn.disabled = true;
+$('#t-q').addEventListener('input', renderTeachers);
+$('#t-filter').addEventListener('change', renderTeachers);
+$('#t-list').addEventListener('change', (e) => {
+  const id = Number(e.target.dataset.tpick);
+  if (!id) return;
+  e.target.checked ? tSelected.add(id) : tSelected.delete(id);
+  renderTeachers();
+});
+$('#t-all').addEventListener('change', (e) => {
+  const q = normAr($('#t-q').value), sub = $('#t-filter').value;
+  teachers.filter((t) => (!q || normAr(t.name).includes(q)) && (!sub || (sub === '__none' ? !t.subject : t.subject === sub)))
+    .forEach((t) => (e.target.checked ? tSelected.add(t.id) : tSelected.delete(t.id)));
+  renderTeachers();
+});
+$('#t-bulk-clear').addEventListener('click', () => { tSelected.clear(); renderTeachers(); });
+$('#t-bulk-set').addEventListener('click', async () => {
+  const subject = $('#t-bulk-subject').value.trim();
+  if (!subject) return toast('اكتب المادة أو اخترها');
   try {
-    const r = await api(`${A}/teachers/upload`, { method: 'POST', form: new FormData(e.target) });
-    toast(`تمت إضافة ${r.added} معلم${r.skipped ? ` (تم تجاهل ${r.skipped} مكرر)` : ''}`);
-    e.target.reset();
+    const r = await api(`${A}/teachers/bulk`, { method: 'POST', body: { ids: [...tSelected], action: 'subject', subject } });
+    toast(`تم تعيين «${subject}» لـ ${r.changed} معلم`);
+    tSelected.clear();
+    $('#t-bulk-subject').value = '';
+    loaders.teachers();
+  } catch (ex) { toast(ex.message); }
+});
+$('#t-bulk-del').addEventListener('click', async () => {
+  if (!confirm(`حذف ${tSelected.size} معلم؟ (تبقى سجلاتهم محفوظة بأسمائهم)`)) return;
+  try {
+    const r = await api(`${A}/teachers/bulk`, { method: 'POST', body: { ids: [...tSelected], action: 'delete' } });
+    toast(`تم حذف ${r.changed} معلم`);
+    tSelected.clear();
     await loadMe();
     loaders.teachers();
+  } catch (ex) { toast(ex.message); }
+});
+
+/* رفع الملف: معاينة ثم تطبيق */
+let tPending = null;
+$('#t-upload').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  if (fd.get('mode') === 'replace' && !confirm('سيتم حذف كل المعلمين الحاليين ثم إضافة من في الملف. متابعة؟')) return;
+  const btn = e.target.querySelector('button[type=submit]');
+  btn.disabled = true;
+  try {
+    tPending = new FormData(e.target);
+    fd.append('dry_run', '1');
+    renderTeacherPreview(await api(`${A}/teachers/upload`, { method: 'POST', form: fd }));
   } catch (ex) { toast(ex.message); } finally { btn.disabled = false; }
 });
+
+function renderTeacherPreview(p) {
+  const s = p.summary;
+  const box = $('#t-preview');
+  const subj = Object.entries(p.subjects).sort((a, b) => b[1] - a[1]);
+  box.innerHTML = `
+    <h3>معاينة — لم يُحفظ شيء بعد</h3>
+    <div class="preview-grid" style="margin-top:12px">
+      <div class="stat"><div class="stat-label">سيتم استيرادهم</div><div class="stat-value num">${s.importing}</div></div>
+      <div class="stat"><div class="stat-label">معلمون في الملف</div><div class="stat-value num">${s.teachers}</div></div>
+      <div class="stat"><div class="stat-label">موظفون آخرون</div><div class="stat-value num">${s.others}</div></div>
+      <div class="stat"><div class="stat-label">عدد المواد</div><div class="stat-value num">${subj.length}</div></div>
+    </div>
+    <div class="chips" style="margin-top:16px">${subj.map(([k, n]) => `<span class="badge">${esc(k)} · ${n}</span>`).join('')}</div>
+    <div class="stack" style="margin-top:16px">
+      <details class="pv"><summary>القائمة (${p.sample.length})</summary><ul>${p.sample.map((t) => `<li>${esc(t.name)} — <strong>${esc(t.subject || 'بدون مادة')}</strong></li>`).join('')}</ul></details>
+      ${p.others.length && s.importing === s.teachers ? `<details class="pv"><summary>لن يُستورد: موظفون ليسوا معلمين (${p.others.length})</summary><ul>${p.others.map((t) => `<li>${esc(t.name)} — ${esc(t.job || '')}</li>`).join('')}</ul></details>` : ''}
+    </div>
+    <div class="row" style="margin-top:24px">
+      <button class="btn btn-primary" id="tpv-apply" type="button">استيراد ${s.importing}</button>
+      <button class="btn btn-ghost" id="tpv-cancel" type="button">إلغاء</button>
+    </div>`;
+  box.classList.remove('hidden');
+  $('#tpv-cancel').onclick = () => { box.classList.add('hidden'); tPending = null; };
+  $('#tpv-apply').onclick = async () => {
+    try {
+      const r = await api(`${A}/teachers/upload`, { method: 'POST', form: tPending });
+      toast(`تمت إضافة ${r.added} معلم${r.updated ? `، وتحديث ${r.updated}` : ''}`);
+      box.classList.add('hidden');
+      $('#t-upload').reset();
+      tPending = null;
+      await loadMe();
+      loaders.teachers();
+    } catch (ex) { toast(ex.message); }
+  };
+}
+
+/* إدخال جماعي */
+$('#tp-names').addEventListener('input', (e) => {
+  const n = e.target.value.split('\n').filter((l) => l.trim()).length;
+  $('#tp-count').textContent = n ? `${n} اسم` : '';
+});
+$('#t-paste').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const r = await api(`${A}/teachers/paste`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+    toast(`تمت إضافة ${r.added} معلم${r.updated ? `، وتحديث ${r.updated}` : ''}`);
+    e.target.reset();
+    $('#tp-count').textContent = '';
+    await loadMe();
+    loaders.teachers();
+  } catch (ex) { toast(ex.message); }
+});
+
 $('#t-add').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
@@ -526,12 +652,28 @@ $('#t-add').addEventListener('submit', async (e) => {
     loaders.teachers();
   } catch (ex) { toast(ex.message); }
 });
+
 $('#t-list').addEventListener('click', async (e) => {
-  const id = e.target.dataset.delTeacher;
-  if (!id || !confirm('حذف المعلم؟ (تبقى سجلاته محفوظة باسمه)')) return;
-  await api(`${A}/teachers/${id}`, { method: 'DELETE' });
-  toast('تم الحذف');
-  loaders.teachers();
+  const ed = e.target.closest('[data-edit-teacher]');
+  const del = e.target.closest('[data-del-teacher]');
+  try {
+    if (ed) {
+      const t = teachers.find((x) => x.id === Number(ed.dataset.editTeacher));
+      const subject = prompt(`مادة ${t.name}:`, t.subject || '');
+      if (subject === null) return;
+      const phone = prompt(`جوال ${t.name}:`, t.phone || '');
+      if (phone === null) return;
+      await api(`${A}/teachers/${t.id}`, { method: 'PATCH', body: { subject, phone } });
+      toast('تم الحفظ');
+      loaders.teachers();
+    }
+    if (del && confirm('حذف المعلم؟ (تبقى سجلاته محفوظة باسمه)')) {
+      await api(`${A}/teachers/${del.dataset.delTeacher}`, { method: 'DELETE' });
+      toast('تم الحذف');
+      await loadMe();
+      loaders.teachers();
+    }
+  } catch (ex) { toast(ex.message); }
 });
 
 /* ---------- الحصص ---------- */

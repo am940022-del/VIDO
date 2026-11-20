@@ -9,6 +9,7 @@ const ExcelJS = require('exceljs');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'att-'));
 process.env.DATA_DIR = tmp;
 process.env.OWNER_RATE_LIMIT = '100';
+process.env.AUTH_RATE_LIMIT = '1000';
 const app = require('../src/server');
 
 let server, base;
@@ -408,4 +409,57 @@ test('تحديث القائمة بملف شعبة واحدة لا يمس الش�
   assert.equal(p.missing[0].name, 'ب');
   const all = (await up('الاسم,الصف,الشعبة\nأ,12,1\n', { mode: 'sync', dry_run: '1', scope: 'all' })).data;
   assert.equal(all.summary.missing, 3);
+});
+
+test('المعلمون: ملف موظفي الوزارة، الإدخال الجماعي، وتعيين المادة', async () => {
+  const xl = require('../src/excel');
+  assert.equal(xl.subjectFromJob('معلم مادة رياضيات'), 'رياضيات');
+  assert.equal(xl.subjectFromJob('معلم أول مادة لغة عربية'), 'لغة عربية');
+  assert.equal(xl.subjectFromJob('معلم اول مادة  لغة انجليزية'), 'لغة إنجليزية');
+  assert.equal(xl.subjectFromJob('معلم مادة آحياء'), 'أحياء');
+  assert.equal(xl.subjectFromJob('حارس'), null);
+
+  // ملف موظفين بعناوين متعددة الأسطر (كما في تقرير الوزارة)
+  const html = '<p>بيانات موظفي المدرسة</p><table>' +
+    '<tr><td>الهاتف</td><td></td><td>الوظيفة</td><td>الإسم (رباعيا)</td></tr>' +
+    '<tr><td></td><td>الوظيفة</td><td>الحالية</td><td></td></tr>' +
+    '<tr><td>95062400</td><td></td><td>معلم مادة رياضة مدرسية</td><td>أحمد بن مبارك بن سالم العجمي</td></tr>' +
+    '<tr><td>72062224</td><td></td><td>معلم أول مادة رياضيات</td><td>أحمد بن محمد بن راشد القنوبي</td></tr>' +
+    '<tr><td>99760119</td><td></td><td>معلم مادة لغة إنجليزية</td><td>روى جورجي</td></tr>' +
+    '<tr><td>91111111</td><td></td><td>حارس</td><td>سالم بن علي بن حمد البلوشي</td></tr></table>';
+  const staff = await xl.parseTeachers(Buffer.from(html), 'staff.xls');
+  assert.deepEqual(staff.map((t) => [t.name, t.subject, t.is_teacher]), [
+    ['أحمد بن مبارك بن سالم العجمي', 'رياضة مدرسية', true],
+    ['أحمد بن محمد بن راشد القنوبي', 'رياضيات', true],
+    ['روى جورجي', 'لغة إنجليزية', true],
+    ['سالم بن علي بن حمد البلوشي', null, false],
+  ]);
+
+  const a = client();
+  await register(a, { schoolName: 'ط', adminName: 'م', email: 'tch@x.com', password: 'password1' });
+  const fd = () => { const f = new FormData(); f.append('file', new Blob([html]), 'staff.xls'); return f; };
+  const prev = (await a('POST', '/api/admin/teachers/upload', (() => { const f = fd(); f.append('dry_run', '1'); return f; })(), true)).data;
+  assert.deepEqual([prev.summary.importing, prev.summary.others], [3, 1]);
+  assert.equal((await a('GET', '/api/admin/teachers')).data.length, 0); // المعاينة لا تحفظ
+  const up = (await a('POST', '/api/admin/teachers/upload', fd(), true)).data;
+  assert.equal(up.added, 3);
+  const again = (await a('POST', '/api/admin/teachers/upload', fd(), true)).data;
+  assert.deepEqual([again.added, again.updated], [0, 3]);
+
+  // لصق: مادة واحدة للجميع، أو مادة بجانب الاسم
+  const p = (await a('POST', '/api/admin/teachers/paste', { subject: 'كيمياء', names: 'خالد بن سعيد\nماجد بن علي، فيزياء\nروى جورجي' })).data;
+  assert.deepEqual([p.added, p.updated], [2, 1]);
+  const list = (await a('GET', '/api/admin/teachers')).data;
+  const by = (n) => list.find((t) => t.name === n);
+  assert.equal(by('خالد بن سعيد').subject, 'كيمياء');
+  assert.equal(by('ماجد بن علي').subject, 'فيزياء');
+  assert.equal(by('روى جورجي').subject, 'كيمياء');
+
+  // تعيين مادة لعدة معلمين وتعديل واحد
+  const bulk = (await a('POST', '/api/admin/teachers/bulk', { ids: [by('خالد بن سعيد').id, by('روى جورجي').id], action: 'subject', subject: 'لغة انجليزية' })).data;
+  assert.equal(bulk.changed, 2);
+  await a('PATCH', `/api/admin/teachers/${by('ماجد بن علي').id}`, { subject: 'أحياء' });
+  const after = (await a('GET', '/api/admin/teachers')).data;
+  assert.equal(after.find((t) => t.name === 'روى جورجي').subject, 'لغة إنجليزية');
+  assert.equal(after.find((t) => t.name === 'ماجد بن علي').subject, 'أحياء');
 });

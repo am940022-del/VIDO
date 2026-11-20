@@ -272,27 +272,60 @@
 
     <!-- ===== المعلمون ===== -->
     <section data-panel="teachers" class="stack-lg hidden" style="margin-top:16px">
+      <div class="card">
+        <h3 class="card-title">رفع ملف المعلمين</h3>
+        <p class="card-sub">يقبل <strong>ملف «بيانات موظفي المدرسة» من نظام الوزارة كما هو</strong> (<bdi>xls</bdi>): يُستورد المعلمون فقط، والمادة تؤخذ من المسمى الوظيفي (مثل «معلم مادة رياضيات» ← رياضيات).
+          أو ملف بسيط بالأعمدة: اسم المعلم، المادة، الجوال. <a href="/api/admin/templates/teachers.xlsx">تحميل القالب</a></p>
+        <form id="t-upload" class="inline-fields">
+          <div class="field"><label for="t-file">الملف</label><input id="t-file" name="file" type="file" accept=".xlsx,.xls,.csv" required></div>
+          <div class="field"><label for="t-mode">طريقة الرفع</label><select id="t-mode" name="mode"><option value="append">إضافة وتحديث (المعلم الموجود تُحدّث مادته)</option><option value="replace">استبدال الكل</option></select></div>
+          <label class="row" style="gap:8px;font-weight:400;min-height:44px"><input type="checkbox" class="check" name="staff" value="all"> كل الموظفين (وليس المعلمين فقط)</label>
+          <button class="btn btn-primary" type="submit">متابعة</button>
+        </form>
+        <div id="t-preview" class="hidden" style="margin-top:24px"></div>
+      </div>
+
       <div class="grid grid-2" style="align-items:start">
         <div class="card">
-          <h3 class="card-title">رفع قائمة المعلمين</h3>
-          <p class="card-sub">ملف يحتوي عمود <strong>اسم المعلم</strong> (واختيارياً: المادة، الجوال). <a href="/api/admin/templates/teachers.xlsx">تحميل القالب</a></p>
-          <form id="t-upload">
-            <div class="field"><label for="t-file">الملف</label><input id="t-file" name="file" type="file" accept=".xlsx,.xls,.csv" required></div>
-            <div class="field"><label for="t-mode">طريقة الرفع</label><select id="t-mode" name="mode"><option value="append">إضافة إلى الموجود</option><option value="replace">استبدال الكل</option></select></div>
-            <button class="btn btn-primary" style="margin-top:24px" type="submit">رفع</button>
+          <h3 class="card-title">إدخال جماعي: لصق أسماء المعلمين</h3>
+          <p class="card-sub">اسم في كل سطر. اختر مادة واحدة لكل الأسماء، أو اكتب المادة بجانب كل اسم بعد فاصلة (مثال: <bdi>أحمد بن سالم، رياضيات</bdi>).</p>
+          <form id="t-paste">
+            <div class="field"><label for="tp-subject">المادة لكل الأسماء (اختياري)</label><input id="tp-subject" name="subject" list="subjects-list" placeholder="مثال: لغة عربية"></div>
+            <div class="field"><label for="tp-names">الأسماء</label><textarea id="tp-names" name="names" rows="7" required placeholder="أحمد بن سالم بن علي&#10;خالد بن محمد، رياضيات&#10;…"></textarea></div>
+            <p class="muted small" id="tp-count"></p>
+            <button class="btn btn-primary" style="margin-top:16px" type="submit">إضافة</button>
           </form>
         </div>
         <div class="card">
-          <h3 class="card-title">إضافة معلم</h3>
+          <h3 class="card-title">إضافة معلم واحد</h3>
           <form id="t-add">
             <div class="field"><label for="ta-name">الاسم</label><input id="ta-name" name="name" required></div>
-            <div class="field"><label for="ta-subject">المادة</label><input id="ta-subject" name="subject"></div>
+            <div class="field"><label for="ta-subject">المادة</label><input id="ta-subject" name="subject" list="subjects-list"></div>
             <div class="field"><label for="ta-phone">الجوال</label><input id="ta-phone" name="phone" dir="ltr"></div>
             <button class="btn" style="margin-top:24px" type="submit">إضافة</button>
           </form>
         </div>
       </div>
-      <div class="table-wrap"><table><thead><tr><th>#</th><th>الاسم</th><th>المادة</th><th>الجوال</th><th>عدد الرصد</th><th></th></tr></thead><tbody id="t-list"></tbody></table></div>
+
+      <div>
+        <div class="row between" style="margin-bottom:12px">
+          <h2>المعلمون <span class="muted small" id="t-count"></span></h2>
+          <div class="row">
+            <select id="t-filter" style="width:auto" aria-label="المادة"><option value="">كل المواد</option></select>
+            <input id="t-q" type="search" placeholder="بحث بالاسم" style="width:200px" aria-label="بحث بالاسم">
+          </div>
+        </div>
+        <div id="t-bulk" class="bulk-bar hidden" role="region" aria-label="إجراء على المحددين">
+          <strong id="t-bulk-count"></strong>
+          <input id="t-bulk-subject" list="subjects-list" placeholder="المادة" style="width:180px" aria-label="المادة">
+          <button class="btn btn-sm btn-primary" id="t-bulk-set" type="button">تعيين المادة</button>
+          <span class="sep-v"></span>
+          <button class="btn btn-sm btn-danger" id="t-bulk-del" type="button">حذف</button>
+          <button class="btn btn-sm btn-ghost" id="t-bulk-clear" type="button">إلغاء التحديد</button>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th><input type="checkbox" class="check" id="t-all" aria-label="تحديد الكل"></th><th>#</th><th>الاسم</th><th>المادة</th><th>الوظيفة</th><th>الجوال</th><th>عدد الرصد</th><th></th></tr></thead><tbody id="t-list"></tbody></table></div>
+      </div>
+      <datalist id="subjects-list"></datalist>
     </section>
 
     <!-- ===== الحصص ===== -->

@@ -153,9 +153,10 @@ const STUDENT_FIELDS = {
 };
 
 const TEACHER_FIELDS = {
-  name: ['اسم المعلم', 'اسم المعلمه', 'الاسم', 'اسم', 'name', 'teacher'],
+  name: ['اسم المعلم', 'اسم المعلمه', 'اسم الموظف', 'الاسم', 'اسم', 'name', 'teacher'],
   subject: ['الماده', 'ماده', 'التخصص', 'subject'],
-  phone: ['الجوال', 'جوال', 'رقم الجوال', 'هاتف', 'phone', 'mobile'],
+  phone: ['الجوال', 'جوال', 'رقم الجوال', 'الهاتف', 'هاتف', 'phone', 'mobile'],
+  job: ['الوظيفه الحاليه', 'الوظيفه', 'المسمى الوظيفي', 'job', 'position'],
 };
 
 /**
@@ -203,21 +204,101 @@ async function parseStudents(buffer, filename, defaults = {}) {
   return out;
 }
 
+/* ---------- المعلمون ---------- */
+
+// كلمات تبدأ بها مسميات الوظائف في ملفات الموظفين
+const JOB_RE = /^(معلم|معلمة|مدير|مديرة|مساعد|أخصائي|اخصائي|أخصائية|فني|فنية|حارس|منسق|منسقة|إداري|اداري|سكرتير|كاتب|مشرف|عامل|موظف|محضر|طبيب|ممرض)/;
+const isTeacherJob = (job) => /^معلم/.test(plainAr(job));
+
+/** المادة من المسمى: «معلم مادة رياضيات» / «معلم أول مادة لغة عربية» ← «رياضيات» / «لغة عربية» */
+function subjectFromJob(job) {
+  const t = plainAr(job);
+  const m = t.match(/^معلم[ة]?\s+(?:اول[ى]?\s+)?(?:ماده|مادة)\s+(.+)$/) || t.match(/^معلم[ة]?\s+(?:اول[ى]?\s+)?(.+)$/);
+  if (!m) return null;
+  return normSubject(m[1]);
+}
+
+/* توحيد كتابة المواد (أخطاء إملائية شائعة في الأنظمة) */
+const SUBJECT_FIX = [[/^احياء$/, 'أحياء'], [/^آحياء$/, 'أحياء'], [/^تربيه اسلاميه$|^تربية اسلامية$/, 'تربية إسلامية'],
+  [/^لغه/, 'لغة'], [/انجليزيه$|انجليزية$/, 'إنجليزية'], [/عربيه$/, 'عربية'], [/^رياضه مدرسيه$|^رياضة مدرسية$/, 'رياضة مدرسية']];
+function normSubject(s) {
+  let v = clean(s).replace(/ـ/g, '').replace(/\s+/g, ' ').trim();
+  for (const [re, to] of SUBJECT_FIX) v = v.replace(re, to);
+  return v.slice(0, 80) || null;
+}
+
+const looksLikeName = (v) => /[\u0600-\u06FF]/.test(v) && clean(v).split(' ').length >= 3 && !/\d/.test(v) && !JOB_RE.test(plainAr(v));
+const looksLikePhone = (v) => /^\+?\d{8,15}$/.test(latinDigits(v).replace(/[\s-]/g, ''));
+
+/**
+ * ملف موظفين بعناوين متعددة الأسطر (مثل تقرير «بيانات موظفي المدرسة» من نظام الوزارة):
+ * تُحدد الأعمدة من محتواها — عمود الأسماء الرباعية، وعمود المسميات الوظيفية، وعمود الهاتف.
+ */
+function detectStaffColumns(rows) {
+  const width = Math.max(0, ...rows.map((r) => r.length));
+  const score = (test) => {
+    let best = -1, bestN = 0;
+    for (let c = 0; c < width; c++) {
+      const n = rows.reduce((k, r) => k + (r[c] && test(r[c]) ? 1 : 0), 0);
+      if (n > bestN) { best = c; bestN = n; }
+    }
+    return { col: best, n: bestN };
+  };
+  const name = score(looksLikeName);
+  const job = score((v) => JOB_RE.test(plainAr(v)));
+  const phone = score(looksLikePhone);
+  if (name.n < 2) return null;
+  return { name: name.col, job: job.n >= 2 ? job.col : -1, phone: phone.n >= 2 ? phone.col : -1 };
+}
+
+/**
+ * يعيد كل الموظفين مع { name, subject, phone, job, is_teacher }.
+ * يدعم: القالب البسيط (اسم المعلم، المادة، الجوال) وملف موظفي المدرسة من الوزارة كما هو.
+ */
 async function parseTeachers(buffer, filename) {
   const rows = await readRows(buffer, filename);
-  const found = mapColumns(rows, TEACHER_FIELDS, ['name']);
-  if (!found) throw new Error('لم يتم العثور على عمود "اسم المعلم". استخدم القالب المرفق.');
-  const { headerRow, map } = found;
   const out = [];
-  for (const row of rows.slice(headerRow + 1)) {
-    const get = (k) => (map[k] === undefined ? '' : clean(row[map[k]]));
-    const name = get('name');
-    if (!name) continue;
-    out.push({
-      name: name.slice(0, 200),
-      subject: get('subject').slice(0, 80) || null,
-      phone: get('phone').slice(0, 30) || null,
-    });
+  let found = mapColumns(rows, TEACHER_FIELDS, ['name'], 2);
+  // عناوين متعددة الأسطر قد تطابق عموداً فارغاً (مثل «مكان الوظيفة»): عندها نحدد الأعمدة من المحتوى
+  if (found) {
+    const people = rows.slice(found.headerRow + 1).filter((r) => looksLikeName(clean(r[found.map.name] || '')));
+    const filled = (k) => found.map[k] !== undefined && people.some((r) => clean(r[found.map[k]] || ''));
+    const detected = detectStaffColumns(rows);
+    if (detected && detected.job >= 0 && !filled('job') && !filled('subject')) found = null;
+  }
+  if (found) {
+    const { headerRow, map } = found;
+    for (const row of rows.slice(headerRow + 1)) {
+      const get = (k) => (map[k] === undefined ? '' : clean(row[map[k]]));
+      const name = get('name');
+      if (!name || plainAr(name) === plainAr(rows[headerRow][map.name])) continue;
+      const job = get('job');
+      out.push({
+        name: name.slice(0, 200),
+        subject: normSubject(get('subject')) || (job ? subjectFromJob(job) : null),
+        phone: get('phone').slice(0, 30) || null,
+        job: job.slice(0, 120) || null,
+        is_teacher: job ? isTeacherJob(job) : true,
+      });
+    }
+  } else {
+    const cols = detectStaffColumns(rows);
+    if (!cols) throw new Error('لم يتم العثور على أسماء المعلمين في الملف. استخدم القالب المرفق، أو أضف الأسماء يدوياً.');
+    for (const row of rows) {
+      const name = clean(row[cols.name] || '');
+      // بعد تحديد عمود الأسماء نقبل الاسم الثنائي أيضاً (مثل أسماء المعلمين الوافدين)
+      if (!/[\u0600-\u06FF]/.test(name) || /\d/.test(name) || name.split(' ').length < 2 || JOB_RE.test(plainAr(name))) continue;
+      if (/^(ال)?اسم\b|رباعي/.test(plainAr(name))) continue; // سطر عنوان
+      const job = cols.job >= 0 ? clean(row[cols.job] || '') : '';
+      const phone = cols.phone >= 0 ? latinDigits(clean(row[cols.phone] || '')) : '';
+      out.push({
+        name: name.replace(/^\u200f/, '').slice(0, 200),
+        subject: job ? subjectFromJob(job) : null,
+        phone: looksLikePhone(phone) ? phone : null,
+        job: job.slice(0, 120) || null,
+        is_teacher: job ? isTeacherJob(job) : true,
+      });
+    }
   }
   return out;
 }
@@ -318,4 +399,4 @@ async function exportStudent(data, st) {
   return wb.xlsx.writeBuffer();
 }
 
-module.exports = { readRows, gradeFromTitle, normGrade, normSection, latinDigits, exportStudent, parseStudents, parseTeachers, templateStudents, templateTeachers, exportRecords, TYPE_LABEL };
+module.exports = { mapColumns, detectStaffColumns, TEACHER_FIELDS, parseTeachers, subjectFromJob, normSubject, isTeacherJob, readRows, gradeFromTitle, normGrade, normSection, latinDigits, exportStudent, parseStudents, templateStudents, templateTeachers, exportRecords, TYPE_LABEL };
