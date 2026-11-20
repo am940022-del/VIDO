@@ -482,3 +482,28 @@ test('البحث بالأسماء: الهمزات، أجزاء الاسم بدو
   assert.deepEqual(await q('عبدالله الحارثي'), ['عبد الله بن سعيد الحارثي']);
   assert.equal((await q('بن')).length, 3); // «بن» وحدها لا تُصفّي
 });
+
+test('شعار المدرسة: رفع صورة حقيقية فقط، وظهوره للمعلمين والتقارير', async () => {
+  const a = client();
+  await register(a, { schoolName: 'شعار', adminName: 'م', email: 'logo@x.com', password: 'password1' });
+  // PNG صغيرة صالحة (1x1)
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082', 'hex');
+  const form = (buf, name) => { const f = new FormData(); f.append('logo', new Blob([buf]), name); return f; };
+  assert.equal((await a('POST', '/api/admin/logo', form(Buffer.from('<svg onload="alert(1)"/>'), 'x.svg'), true)).status, 400);
+  assert.equal((await a('POST', '/api/admin/logo', form(Buffer.from('not an image'), 'fake.png'), true)).status, 400);
+  const up = (await a('POST', '/api/admin/logo', form(png, 'logo.png'), true)).data;
+  assert.match(up.logo_url, /^\/logos\/[\w-]+$/);
+
+  const me = (await a('GET', '/api/admin/me')).data;
+  assert.equal(me.school.logo_url, up.logo_url);
+  const img = await fetch(base + up.logo_url);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  assert.equal(Buffer.from(await img.arrayBuffer()).compare(png), 0);
+  const info = (await client()('GET', `/api/t/${me.school.teacher_token}/info`)).data;
+  assert.equal(info.logo_url, up.logo_url);
+  assert.equal((await a('GET', '/api/admin/student-reports')).data.logo_url, up.logo_url);
+
+  await a('DELETE', '/api/admin/logo');
+  assert.equal((await fetch(base + up.logo_url)).status, 404);
+  assert.equal((await a('GET', '/api/admin/me')).data.school.logo_url, null);
+});

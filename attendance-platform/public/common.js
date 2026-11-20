@@ -53,6 +53,25 @@ function fmtDate(d, short) {
   } catch { return d; }
 }
 
+/* يستبدل علامة ✓ في الشريط العلوي بشعار المدرسة إن وُجد */
+function setBrandLogo(url) {
+  const mark = document.querySelector('.topbar .brand-mark, .topbar .brand-logo');
+  if (!mark) return;
+  if (url) {
+    const img = document.createElement('img');
+    img.className = 'brand-logo';
+    img.src = url;
+    img.alt = '';
+    mark.replaceWith(img);
+  } else if (mark.tagName === 'IMG') {
+    const span = document.createElement('span');
+    span.className = 'brand-mark';
+    span.setAttribute('aria-hidden', 'true');
+    span.textContent = '✓';
+    mark.replaceWith(span);
+  }
+}
+
 /* البحث بالأسماء — نفس قواعد src/search.js:
  * لا يفرّق بين الهمزات (أحمد = احمد)، ة/ه، ى/ي، ولا يتأثر بالتشكيل، و«عبد الله» = «عبدالله».
  * يبحث بالكلمات بأي ترتيب ويتجاهل «بن/بنت»: «أحمد القنوبي» يجد «أحمد بن محمد بن راشد القنوبي». */

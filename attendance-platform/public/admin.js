@@ -39,7 +39,33 @@ async function loadMe() {
   $('#ss-admin').value = me.school.admin_name;
   $('#ss-cc').value = me.school.country_code || '966';
   renderSubscription();
+  renderLogo();
 }
+
+/* ---------- الشعار ---------- */
+function renderLogo() {
+  const url = me.school.logo_url;
+  setBrandLogo(url);
+  $('#logo-box').innerHTML = url ? `<img class="logo-preview" src="${esc(url)}" alt="شعار المدرسة">` : '<div class="logo-empty">لا يوجد شعار</div>';
+  $('#logo-remove').classList.toggle('hidden', !url);
+}
+$('#logo-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = $('#logo-file').files[0];
+  if (f && f.size > 1024 * 1024) return toast('حجم الصورة أكبر من 1 ميجابايت');
+  try {
+    await api(`${A}/logo`, { method: 'POST', form: new FormData(e.target) });
+    e.target.reset();
+    await loadMe();
+    toast('تم رفع الشعار');
+  } catch (ex) { toast(ex.message); }
+});
+$('#logo-remove').addEventListener('click', async () => {
+  if (!confirm('إزالة شعار المدرسة؟')) return;
+  await api(`${A}/logo`, { method: 'DELETE' });
+  await loadMe();
+  toast('تمت إزالة الشعار');
+});
 
 /* ---------- الاشتراك ---------- */
 function supportButtons(sp) {

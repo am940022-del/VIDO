@@ -51,6 +51,7 @@ function applyInfo(info) {
   state.info = info;
   document.title = `رصد الحضور — ${info.school}`;
   $('#school-name').textContent = info.school;
+  setBrandLogo(info.logo_url);
   $('#today').textContent = fmtDate(info.today, true);
 
   renderPicker();

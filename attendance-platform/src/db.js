@@ -159,6 +159,14 @@ if (!db.prepare('PRAGMA table_info(teachers)').all().some((c) => c.name === 'job
   db.exec('ALTER TABLE teachers ADD COLUMN job TEXT');
 }
 
+/* شعار المدرسة: الصورة داخل قاعدة البيانات (تدخل في النسخ الاحتياطي)، ويُخدم برابط عشوائي يتغير مع كل رفع */
+if (!db.prepare('PRAGMA table_info(schools)').all().some((c) => c.name === 'logo')) {
+  db.exec(`ALTER TABLE schools ADD COLUMN logo BLOB;
+           ALTER TABLE schools ADD COLUMN logo_type TEXT;
+           ALTER TABLE schools ADD COLUMN logo_key TEXT;`);
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_schools_logo_key ON schools(logo_key)');
+}
+
 /* name_match(name, query): بحث الأسماء العربية بالكلمات ومع اختلاف الهمزات (src/search.js) */
 const { nameMatches } = require('./search');
 db.function('name_match', { deterministic: true }, (name, q) => (nameMatches(name, q) ? 1 : 0));

@@ -12,6 +12,7 @@
   const f = rec.filters;
   const typeTxt = f.type ? ` · الحالة: ${TYPE_LABEL[f.type]}` : '';
   const gradeTxt = f.grade ? ` · الصف: ${f.grade}` : '';
+  if (me.school.logo_url) { $('#logo').src = me.school.logo_url; $('#logo').classList.remove('hidden'); }
   $('#title').textContent = `${me.school.name} — تقرير الغياب والتأخير والهروب`;
   $('#meta').innerHTML = `الفترة من <bdi>${esc(f.from)}</bdi> إلى <bdi>${esc(f.to)}</bdi>${esc(gradeTxt)}${esc(typeTxt)}`;
   document.title = `تقرير ${f.from} - ${f.to}`;
@@ -30,5 +31,6 @@
 
   $('#print').addEventListener('click', () => window.print());
   await document.fonts.ready;
+  if (me.school.logo_url) await new Promise((r) => { const i = $('#logo'); if (i.complete) r(); else { i.onload = r; i.onerror = r; } });
   setTimeout(() => window.print(), 300);
 })();

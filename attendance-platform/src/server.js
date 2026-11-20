@@ -46,6 +46,17 @@ const upload = multer({
   fileFilter: (req, file, cb) => cb(null, /\.(xlsx|xls|csv|html?)$/i.test(file.originalname)),
 });
 
+const logoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 1024 * 1024 } });
+
+/** نوع الصورة من محتواها الفعلي (لا من الامتداد): PNG أو JPEG أو WebP فقط — بدون SVG */
+function imageType(buf) {
+  if (buf.length > 8 && buf.readUInt32BE(0) === 0x89504e47) return 'image/png';
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.length > 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
+}
+const logoUrl = (key) => (key ? `/logos/${key}` : null);
+
 /* ---------------- أدوات ---------------- */
 
 const collator = new Intl.Collator('ar', { numeric: true, sensitivity: 'base' });
@@ -192,7 +203,7 @@ const admin = express.Router();
 admin.use(requireAdmin);
 
 admin.get('/me', (req, res) => {
-  const s = db.prepare('SELECT id, name, admin_name, email, teacher_token, country_code, created_at, plan, subscription_end, must_change_password FROM schools WHERE id = ?').get(req.schoolId);
+  const s = db.prepare('SELECT id, name, admin_name, email, teacher_token, country_code, created_at, plan, subscription_end, must_change_password, logo_key FROM schools WHERE id = ?').get(req.schoolId);
   const counts = db.prepare(`SELECT
       (SELECT COUNT(*) FROM students WHERE school_id = @id AND status = 'active') AS students,
       (SELECT COUNT(*) FROM teachers WHERE school_id = @id) AS teachers,
@@ -200,6 +211,8 @@ admin.get('/me', (req, res) => {
       (SELECT COUNT(*) FROM periods  WHERE school_id = @id) AS periods`).get({ id: req.schoolId });
   const t = today();
   const daysLeft = s.subscription_end ? Math.round((new Date(s.subscription_end) - new Date(t)) / 864e5) : null;
+  s.logo_url = logoUrl(s.logo_key);
+  delete s.logo_key;
   res.json({ school: s, counts, today: t, subscription: { plan: s.plan, end: s.subscription_end, days_left: daysLeft }, support: SUPPORT });
 });
 
@@ -221,6 +234,20 @@ admin.put('/password', wrap(async (req, res) => {
   db.prepare('DELETE FROM sessions WHERE school_id = ? AND token != ?').run(req.schoolId, req.cookies.sid);
   res.json({ ok: true });
 }));
+
+admin.post('/logo', logoUpload.single('logo'), (req, res) => {
+  if (!req.file) throw new HttpError(400, 'اختر صورة الشعار');
+  const type = imageType(req.file.buffer);
+  if (!type) throw new HttpError(400, 'الشعار يجب أن يكون صورة PNG أو JPG أو WebP');
+  const key = newToken(12);
+  db.prepare('UPDATE schools SET logo = ?, logo_type = ?, logo_key = ? WHERE id = ?').run(req.file.buffer, type, key, req.schoolId);
+  res.json({ ok: true, logo_url: logoUrl(key) });
+});
+
+admin.delete('/logo', (req, res) => {
+  db.prepare('UPDATE schools SET logo = NULL, logo_type = NULL, logo_key = NULL WHERE id = ?').run(req.schoolId);
+  res.json({ ok: true });
+});
 
 admin.post('/rotate-link', (req, res) => {
   const token = newToken(18);
@@ -744,8 +771,8 @@ function studentReports(req) {
     const days = new Set(records.filter((r) => r.type === 'absent').map((r) => r.date));
     return { id: s.id, name: s.name, grade: s.grade, section: s.section, student_no: extra.student_no, guardian_phone: extra.guardian_phone, totals, absentDays: days.size, records };
   });
-  const school = db.prepare('SELECT name, country_code FROM schools WHERE id = ?').get(req.schoolId);
-  return { school: school.name, country_code: school.country_code, from: f.from, to: f.to, students: list };
+  const school = db.prepare('SELECT name, country_code, logo_key FROM schools WHERE id = ?').get(req.schoolId);
+  return { school: school.name, logo_url: logoUrl(school.logo_key), country_code: school.country_code, from: f.from, to: f.to, students: list };
 }
 
 admin.get('/student-reports', (req, res) => res.json(studentReports(req)));
@@ -800,13 +827,14 @@ teacher.use(teacherLimiter);
 teacher.use((req, res, next) => {
   const token = req.params.token;
   const school = typeof token === 'string' && token.length >= 16
-    ? db.prepare('SELECT id, name, status, subscription_end FROM schools WHERE teacher_token = ?').get(token)
+    ? db.prepare('SELECT id, name, status, subscription_end, logo_key FROM schools WHERE teacher_token = ?').get(token)
     : null;
   if (!school) return res.status(404).json({ error: 'الرابط غير صحيح أو تم تغييره. اطلب الرابط الجديد من إدارة المدرسة.' });
   const access = schoolAccess(school, today());
   if (!access.ok) return res.status(403).json({ error: access.code === 'pending' ? 'حساب المدرسة لم يُفعّل بعد.' : 'الرصد متوقف حالياً لهذه المدرسة. راجع إدارة المدرسة.', code: access.code });
   req.schoolId = school.id;
   req.schoolName = school.name;
+  req.schoolLogo = logoUrl(school.logo_key);
   next();
 });
 
@@ -817,6 +845,7 @@ teacher.get('/info', (req, res) => {
   sortSections(sections);
   res.json({
     school: req.schoolName,
+    logo_url: req.schoolLogo,
     today: today(),
     periods: db.prepare('SELECT number, start_time, end_time FROM periods WHERE school_id = ? ORDER BY number').all(req.schoolId),
     teachers: db.prepare('SELECT id, name, subject FROM teachers WHERE school_id = ? ORDER BY name').all(req.schoolId),
@@ -905,6 +934,13 @@ app.use('/api/t/:token', teacher);
 const pub = path.join(__dirname, '..', 'public');
 app.use(express.static(pub, { index: false, extensions: ['html'], maxAge: '1h' }));
 app.get('/', (req, res) => res.sendFile(path.join(pub, 'index.html')));
+// الشعارات: الرابط يتغير مع كل رفع، لذلك تُخزّن في المتصفح طويلاً
+app.get('/logos/:key', (req, res) => {
+  const row = /^[\w-]{10,40}$/.test(req.params.key) && db.prepare('SELECT logo, logo_type FROM schools WHERE logo_key = ?').get(req.params.key);
+  if (!row || !row.logo) return res.status(404).end();
+  res.set({ 'Content-Type': row.logo_type, 'Cache-Control': 'public, max-age=31536000, immutable', 'Content-Disposition': 'inline' });
+  res.send(row.logo);
+});
 app.get('/admin', (req, res) => res.sendFile(path.join(pub, 'admin.html')));
 app.get('/owner', (req, res) => res.sendFile(path.join(pub, 'owner.html')));
 app.get('/report', (req, res) => res.sendFile(path.join(pub, 'report.html')));

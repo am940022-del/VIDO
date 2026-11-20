@@ -35,9 +35,12 @@
 <body>
   <div class="report">
     <div class="toolbar"><button class="btn btn-primary" id="print" type="button">طباعة / حفظ PDF</button></div>
-    <header>
+    <header class="row" style="gap:16px;align-items:center">
+      <img id="logo" class="report-logo hidden" alt="">
+      <div class="grow">
       <h1 id="title">تقرير الغياب والتأخير والهروب</h1>
       <p class="muted" id="meta"></p>
+      </div>
     </header>
     <div class="kpis" id="kpis"></div>
     <h2>ملخص الطلاب</h2>

@@ -17,7 +17,7 @@
   $('#letters').innerHTML = d.students.map((st) => `
     <article class="letter">
       <header>
-        <div><h1>${esc(d.school)}</h1><p class="muted">إشعار ولي أمر — كشف حضور الطالب</p></div>
+        <div class="row" style="gap:16px;align-items:center;flex-wrap:nowrap">${d.logo_url ? `<img class="report-logo" src="${esc(d.logo_url)}" alt="">` : ''}<div><h1>${esc(d.school)}</h1><p class="muted">إشعار ولي أمر — كشف حضور الطالب</p></div></div>
         <p class="muted small">الفترة ${period}</p>
       </header>
       <div class="info">
