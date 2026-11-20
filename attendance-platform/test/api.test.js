@@ -507,3 +507,36 @@ test('شعار المدرسة: رفع صورة حقيقية فقط، وظهور�
   assert.equal((await fetch(base + up.logo_url)).status, 404);
   assert.equal((await a('GET', '/api/admin/me')).data.school.logo_url, null);
 });
+
+test('المتابعة: كشف شعبة ليوم محدد وتصحيح الإدارة', async () => {
+  const a = client();
+  await register(a, { schoolName: 'متابعة', adminName: 'م', email: 'follow@x.com', password: 'password1' });
+  await a('POST', '/api/admin/students/paste', { grade: '12', section: '3', names: 'أحمد بن سالم\nخالد بن علي\nسعيد بن محمد' });
+  const me = (await a('GET', '/api/admin/me')).data;
+  const sec = (await a('GET', '/api/admin/sections')).data[0];
+  const st = (await a('GET', '/api/admin/students')).data;
+  const id = (n) => st.find((s) => s.name === n).id;
+  // المعلم يرصد اليوم
+  const t = client();
+  await t('POST', `/api/t/${me.school.teacher_token}/marks`, { items: [{ student_id: id('أحمد بن سالم'), period: 1, type: 'absent' }, { student_id: id('خالد بن علي'), period: 2, type: 'late' }] });
+  // الإدارة تصحح يوماً سابقاً
+  assert.equal((await a('PUT', '/api/admin/marks', { student_id: id('سعيد بن محمد'), period: 3, date: '2026-01-05', type: 'escape' })).status, 200);
+  assert.equal((await a('PUT', '/api/admin/marks', { student_id: id('سعيد بن محمد'), period: 3, date: '2099-01-01', type: 'absent' })).status, 400);
+
+  const today = (await a('GET', `/api/admin/sections/${sec.id}/day?date=${me.today}`)).data;
+  assert.equal(today.students.length, 3);
+  assert.deepEqual([today.totals.absent, today.totals.late, today.totals.size], [1, 1, 3]);
+  assert.deepEqual(today.marked_periods.sort(), [1, 2]);
+  assert.equal(today.students.find((s) => s.id === id('أحمد بن سالم')).marks[1].type, 'absent');
+
+  const past = (await a('GET', `/api/admin/sections/${sec.id}/day?date=2026-01-05`)).data;
+  assert.equal(past.students.find((s) => s.id === id('سعيد بن محمد')).marks[3].teacher, 'الإدارة');
+  // إزالة الرصد
+  await a('PUT', '/api/admin/marks', { student_id: id('سعيد بن محمد'), period: 3, date: '2026-01-05', type: null });
+  assert.equal((await a('GET', `/api/admin/sections/${sec.id}/day?date=2026-01-05`)).data.totals.escape, 0);
+  // مدرسة أخرى لا ترى الكشف
+  const b = client();
+  await register(b, { schoolName: 'أخرى', adminName: 'م', email: 'follow2@x.com', password: 'password1' });
+  assert.equal((await b('GET', `/api/admin/sections/${sec.id}/day?date=${me.today}`)).status, 404);
+  assert.equal((await b('PUT', '/api/admin/marks', { student_id: id('أحمد بن سالم'), period: 1, date: me.today, type: 'late' })).status, 404);
+});

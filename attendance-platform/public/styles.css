@@ -444,3 +444,22 @@ details.pv ul { margin: var(--space-2) 0; padding-inline-start: var(--space-5); 
 .logo-empty { width: 120px; height: 120px; border-radius: 12px; border: 2px dashed var(--border); display: grid; place-items: center; color: var(--text-2); font-size: 14px; text-align: center; }
 .report-logo { width: 72px; height: 72px; object-fit: contain; }
 @media (max-width: 640px) { .brand-logo { width: 32px; height: 32px; } }
+
+/* المتابعة */
+.day-grid th, .day-grid td { text-align: center; }
+.day-grid th:nth-child(2), .day-grid td:nth-child(2) { text-align: start; }
+.day-grid th.unmarked { background: var(--late-soft) !important; color: var(--late); }
+.cell { font: inherit; font-size: 13px; min-width: 52px; min-height: 36px; border-radius: 6px; border: 1px dashed var(--border); background: transparent; color: var(--text-2); cursor: pointer; }
+.cell:hover { border-color: var(--primary); }
+.cell.absent { background: var(--absent-soft); color: var(--absent); border: 1px solid var(--absent); font-weight: 500; }
+.cell.late { background: var(--late-soft); color: var(--late); border: 1px solid var(--late); font-weight: 500; }
+.cell.escape { background: var(--escape-soft); color: var(--escape); border: 1px solid var(--escape); font-weight: 500; }
+.cell-menu { position: absolute; z-index: 30; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-2); padding: 6px; display: flex; gap: 4px; }
+.suggest { position: absolute; inset-inline: 0; top: 100%; z-index: 30; list-style: none; margin: 4px 0 0; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-2); max-height: 320px; overflow-y: auto; }
+.suggest li { padding: 10px 12px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+.suggest li:hover, .suggest li[aria-selected="true"] { background: var(--surface-2); }
+@media print {
+  body.print-day header.topbar, body.print-day nav, body.print-day main > section:not([data-panel="follow"]), body.print-day [data-panel="follow"] > .card,
+  body.print-day #s-result, body.print-day #d-print, body.print-day #setup-hint, body.print-day #sub-banner { display: none !important; }
+  body.print-day .cell { border: none; min-height: 0; }
+}

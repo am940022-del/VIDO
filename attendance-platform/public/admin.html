@@ -19,6 +19,7 @@
   <nav class="container" aria-label="أقسام اللوحة">
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" data-tab="overview" aria-selected="true">الإحصائيات</button>
+      <button class="tab" role="tab" data-tab="follow">المتابعة</button>
       <button class="tab" role="tab" data-tab="records">السجلات</button>
       <button class="tab" role="tab" data-tab="students">الطلاب والصفوف</button>
       <button class="tab" role="tab" data-tab="teachers">المعلمون</button>
@@ -117,6 +118,48 @@
     </section>
 
     <!-- ===== السجلات ===== -->
+    <!-- ===== المتابعة ===== -->
+    <section data-panel="follow" class="stack-lg hidden" style="margin-top:16px">
+      <div class="card">
+        <h3 class="card-title">البحث عن غياب طالب</h3>
+        <p class="card-sub">اكتب جزءاً من الاسم (مثل «أحمد القنوبي») أو رقم الطالب، ثم اختر الطالب.</p>
+        <div class="inline-fields">
+          <div class="field" style="flex:2 1 280px;position:relative">
+            <label for="s-find">اسم الطالب أو رقمه</label>
+            <input id="s-find" type="search" autocomplete="off" placeholder="ابحث…" aria-controls="s-find-list">
+            <ul id="s-find-list" class="suggest hidden" role="listbox"></ul>
+          </div>
+          <div class="field"><label for="s-from">من</label><input id="s-from" type="date"></div>
+          <div class="field"><label for="s-to">إلى</label><input id="s-to" type="date"></div>
+        </div>
+      </div>
+      <div id="s-result" class="hidden"></div>
+      <div class="card">
+        <h3 class="card-title">غياب شعبة في يوم محدد</h3>
+        <p class="card-sub">اختر الصف والشعبة والتاريخ لعرض حالة كل طالب في كل حصة. يمكنك تصحيح أي خانة بالضغط عليها.</p>
+        <div class="inline-fields">
+          <div class="field"><label for="d-grade">الصف</label><select id="d-grade"></select></div>
+          <div class="field"><label for="d-section">الشعبة</label><select id="d-section"></select></div>
+          <div class="field"><label for="d-date">التاريخ</label><input id="d-date" type="date"></div>
+          <div class="row">
+            <button class="btn btn-sm" id="d-prev" type="button" aria-label="اليوم السابق">→ السابق</button>
+            <button class="btn btn-sm" id="d-today" type="button">اليوم</button>
+            <button class="btn btn-sm" id="d-next" type="button" aria-label="اليوم التالي">التالي ←</button>
+          </div>
+        </div>
+      </div>
+      <div id="d-result" class="hidden">
+        <div class="row between" style="margin-bottom:12px">
+          <div><h2 id="d-title"></h2><p class="muted" id="d-day"></p></div>
+          <div class="row"><button class="btn btn-sm" id="d-print" type="button">طباعة / PDF</button></div>
+        </div>
+        <div class="summary-bar" id="d-summary" style="margin-bottom:12px"></div>
+        <div class="table-wrap"><table class="day-grid"><thead id="d-head"></thead><tbody id="d-body"></tbody></table></div>
+        <p class="muted small" style="margin-top:8px">الحصة المظللة لم يُرصد فيها أي طالب بعد (قد يكون المعلم لم يرصدها، أو حضر الجميع).</p>
+      </div>
+
+    </section>
+
     <section data-panel="records" class="stack hidden" style="margin-top:16px">
       <div class="card">
         <div class="inline-fields">

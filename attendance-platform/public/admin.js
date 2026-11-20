@@ -280,6 +280,168 @@ $('#o-students').addEventListener('click', async (e) => {
   else if (t.dataset.phone && await editPhone(t.dataset.phone, '')) loaders.overview();
 });
 
+/* ---------- المتابعة: كشف شعبة ليوم ---------- */
+const dayName = (d) => new Intl.DateTimeFormat('ar', { weekday: 'long' }).format(new Date(d + 'T12:00:00'));
+const fullDate = (d) => new Intl.DateTimeFormat('ar-u-nu-latn', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(d + 'T12:00:00'));
+let dayData = null;
+
+function fillDayPickers() {
+  const grades = [...new Set(sections.map((s) => s.grade))];
+  const g = $('#d-grade');
+  const cur = g.value;
+  g.innerHTML = grades.map((x) => `<option value="${esc(x)}">${esc(gradeLabel(x))}</option>`).join('');
+  if (cur && grades.includes(cur)) g.value = cur;
+  fillDaySections();
+  if (!$('#d-date').value) $('#d-date').value = me.today;
+  if (!$('#s-from').value) { $('#s-from').value = me.today.slice(0, 8) + '01'; $('#s-to').value = me.today; }
+}
+function fillDaySections() {
+  const s = $('#d-section');
+  const cur = s.value;
+  const list = sections.filter((x) => x.grade === $('#d-grade').value);
+  s.innerHTML = list.map((x) => `<option value="${x.id}">شعبة ${esc(x.section)}</option>`).join('');
+  if (cur && list.some((x) => String(x.id) === cur)) s.value = cur;
+}
+
+async function loadDay() {
+  const id = $('#d-section').value;
+  const date = $('#d-date').value;
+  if (!id || !date) return;
+  dayData = await api(`${A}/sections/${id}/day?date=${date}`);
+  const d = dayData;
+  $('#d-title').textContent = `${gradeLabel(d.section.grade)} — شعبة ${d.section.section}`;
+  $('#d-day').textContent = fullDate(d.date);
+  const t = d.totals;
+  $('#d-summary').innerHTML = `<span class="badge">طلاب الشعبة ${t.size}</span><span class="badge absent">غياب ${t.absent}</span><span class="badge late">تأخير ${t.late}</span><span class="badge escape">هروب ${t.escape}</span><span class="badge">طلاب لديهم حالات ${t.students}</span>`;
+  $('#d-head').innerHTML = `<tr><th>#</th><th>الطالب</th>${d.periods.map((p) => `<th class="${d.marked_periods.includes(p) ? '' : 'unmarked'}">ح${p}</th>`).join('')}</tr>`;
+  $('#d-body').innerHTML = d.students.length ? d.students.map((s, i) => `<tr>
+      <td class="num">${i + 1}</td>
+      <td>${esc(s.name)}${s.status !== 'active' ? ` <span class="badge ${s.status}">${STATUS_LABEL[s.status]}</span>` : ''}</td>
+      ${d.periods.map((p) => { const m = s.marks[p]; return `<td><button type="button" class="cell ${m ? m.type : ''}" data-sid="${s.id}" data-p="${p}" title="${m ? esc(`${TYPE_LABEL[m.type]}${m.teacher ? ' — ' + m.teacher : ''}${m.note ? ' — ' + m.note : ''}`) : 'حاضر'}">${m ? TYPE_LABEL[m.type] : '—'}</button></td>`; }).join('')}
+    </tr>`).join('') : `<tr><td colspan="${d.periods.length + 2}" class="empty">لا يوجد طلاب في هذه الشعبة</td></tr>`;
+  $('#d-result').classList.remove('hidden');
+}
+
+$('#d-grade').addEventListener('change', () => { fillDaySections(); loadDay().catch((e) => toast(e.message)); });
+$('#d-section').addEventListener('change', () => loadDay().catch((e) => toast(e.message)));
+$('#d-date').addEventListener('change', () => loadDay().catch((e) => toast(e.message)));
+const shiftDay = (n) => { $('#d-date').value = addDays($('#d-date').value || me.today, n); loadDay().catch((e) => toast(e.message)); };
+$('#d-prev').addEventListener('click', () => shiftDay(-1));
+$('#d-next').addEventListener('click', () => shiftDay(1));
+$('#d-today').addEventListener('click', () => { $('#d-date').value = me.today; loadDay().catch((e) => toast(e.message)); });
+$('#d-print').addEventListener('click', () => { document.body.classList.add('print-day'); window.print(); setTimeout(() => document.body.classList.remove('print-day'), 500); });
+
+// تصحيح خانة: قائمة صغيرة بالحالات
+let cellMenu = null;
+function closeCellMenu() { if (cellMenu) { cellMenu.remove(); cellMenu = null; } }
+$('#d-body').addEventListener('click', (e) => {
+  const b = e.target.closest('.cell');
+  if (!b) return;
+  e.stopPropagation();
+  closeCellMenu();
+  if ($('#d-date').value > me.today) return toast('لا يمكن الرصد لتاريخ قادم');
+  cellMenu = document.createElement('div');
+  cellMenu.className = 'cell-menu';
+  cellMenu.innerHTML = [['', 'حاضر'], ['absent', 'غياب'], ['late', 'تأخير'], ['escape', 'هروب']]
+    .map(([t, l]) => `<button type="button" class="btn btn-sm ${t ? `cell ${t}` : ''}" data-set="${t}">${l}</button>`).join('');
+  document.body.appendChild(cellMenu);
+  const r = b.getBoundingClientRect();
+  cellMenu.style.top = `${window.scrollY + r.bottom + 4}px`;
+  cellMenu.style.left = `${Math.max(8, window.scrollX + r.left + r.width / 2 - cellMenu.offsetWidth / 2)}px`;
+  cellMenu.addEventListener('click', async (ev) => {
+    const s = ev.target.closest('[data-set]');
+    if (!s) return;
+    try {
+      await api(`${A}/marks`, { method: 'PUT', body: { student_id: Number(b.dataset.sid), period: Number(b.dataset.p), date: $('#d-date').value, type: s.dataset.set || null } });
+      closeCellMenu();
+      toast('تم الحفظ');
+      loadDay();
+    } catch (ex) { toast(ex.message); }
+  });
+});
+document.addEventListener('click', (e) => { if (cellMenu && !cellMenu.contains(e.target)) closeCellMenu(); });
+
+/* ---------- المتابعة: البحث عن طالب ---------- */
+let findTimer, findResults = [], findIndex = -1, pickedStudent = null;
+$('#s-find').addEventListener('input', () => {
+  clearTimeout(findTimer);
+  const q = $('#s-find').value.trim();
+  if (q.length < 2) { $('#s-find-list').classList.add('hidden'); return; }
+  findTimer = setTimeout(async () => {
+    const isNo = /^\d{3,}$/.test(q);
+    const all = await api(`${A}/students?${qs({ status: 'all', q: isNo ? '' : q })}`);
+    findResults = (isNo ? all.filter((s) => String(s.student_no || '').includes(q)) : all).slice(0, 20);
+    findIndex = -1;
+    $('#s-find-list').innerHTML = findResults.length ? findResults.map((s, i) => `<li role="option" data-i="${i}"><span>${esc(s.name)}</span><span class="muted small">${esc(gradeLabel(s.grade))} / ${esc(s.section)}${s.status !== 'active' ? ' · ' + STATUS_LABEL[s.status] : ''}</span></li>`).join('')
+      : '<li class="muted small">لا توجد نتائج</li>';
+    $('#s-find-list').classList.remove('hidden');
+  }, 200);
+});
+$('#s-find').addEventListener('keydown', (e) => {
+  const items = $$('#s-find-list [data-i]');
+  if (!items.length) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    findIndex = (findIndex + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items.forEach((li, i) => li.setAttribute('aria-selected', String(i === findIndex)));
+  }
+  if (e.key === 'Enter') { e.preventDefault(); pickStudent(findResults[Math.max(0, findIndex)]); }
+});
+$('#s-find-list').addEventListener('click', (e) => {
+  const li = e.target.closest('[data-i]');
+  if (li) pickStudent(findResults[Number(li.dataset.i)]);
+});
+document.addEventListener('click', (e) => { if (!e.target.closest('#s-find, #s-find-list')) $('#s-find-list').classList.add('hidden'); });
+$('#s-from').addEventListener('change', () => pickedStudent && pickStudent(pickedStudent));
+$('#s-to').addEventListener('change', () => pickedStudent && pickStudent(pickedStudent));
+
+async function pickStudent(s) {
+  if (!s) return;
+  pickedStudent = s;
+  $('#s-find').value = s.name;
+  $('#s-find-list').classList.add('hidden');
+  const from = $('#s-from').value, to = $('#s-to').value;
+  try {
+    const d = await api(`${A}/student-reports?${qs({ student_id: s.id, from, to })}`);
+    const st = d.students[0];
+    const byDay = {};
+    st.records.forEach((r) => (byDay[r.date] ||= []).push(r));
+    const days = Object.keys(byDay).sort().reverse();
+    const sent = isSent(st.id, from, to);
+    $('#s-result').innerHTML = `
+      <div class="card">
+        <div class="row between">
+          <div><h2>${esc(st.name)}</h2><p class="muted">${esc(gradeLabel(st.grade))} / شعبة ${esc(st.section)}${st.student_no ? ` · رقم الطالب <bdi>${esc(st.student_no)}</bdi>` : ''} · من <bdi>${esc(d.from)}</bdi> إلى <bdi>${esc(d.to)}</bdi></p></div>
+          <div class="row">
+            <a class="btn btn-sm" href="/student-report?${qs({ student_id: st.id, from, to })}" target="_blank" rel="noopener">كشف PDF</a>
+            <a class="btn btn-sm" href="${A}/students/${st.id}/export.xlsx?${qs({ from, to })}">Excel</a>
+            ${st.guardian_phone ? `<button class="btn btn-sm btn-primary" data-wa="${st.id}" type="button">${sent ? '✓ أُرسل' : 'إرسال لولي الأمر'}</button>` : '<span class="muted small">لا يوجد جوال لولي الأمر</span>'}
+          </div>
+        </div>
+        <div class="grid grid-4" style="margin-top:16px">
+          <div class="stat absent"><div class="stat-label">غياب (حصص)</div><div class="stat-value num">${st.totals.absent}</div></div>
+          <div class="stat"><div class="stat-label">أيام الغياب</div><div class="stat-value num">${st.absentDays}</div></div>
+          <div class="stat late"><div class="stat-label">تأخير</div><div class="stat-value num">${st.totals.late}</div></div>
+          <div class="stat escape"><div class="stat-label">هروب</div><div class="stat-value num">${st.totals.escape}</div></div>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top:16px"><table><thead><tr><th>التاريخ</th><th>اليوم</th><th>الحالات</th></tr></thead><tbody>
+        ${days.length ? days.map((day) => `<tr><td class="num"><bdi>${esc(day)}</bdi></td><td>${dayName(day)}</td>
+          <td><div class="chips">${byDay[day].map((r) => `<span class="badge ${r.type}" title="${esc(r.teacher_name || '')}">ح${r.period_number} ${TYPE_LABEL[r.type]}</span>`).join('')}</div></td></tr>`).join('')
+        : '<tr><td colspan="3" class="empty">لا توجد حالات في هذه الفترة ✓</td></tr>'}
+      </tbody></table></div>`;
+    $('#s-result').classList.remove('hidden');
+    const wa = $('#s-result [data-wa]');
+    if (wa) wa.addEventListener('click', () => sendToGuardian(st.id, 'wa', from, to));
+  } catch (ex) { toast(ex.message); }
+}
+
+loaders.follow = async () => {
+  await loadSections();
+  fillDayPickers();
+  await loadDay().catch((e) => toast(e.message));
+};
+
 /* ---------- السجلات ---------- */
 function recordQuery() {
   return qs({ from: $('#r-from').value, to: $('#r-to').value, grade: $('#r-grade').value, section_id: $('#r-section').value, type: $('#r-type').value, q: $('#r-q').value.trim() });

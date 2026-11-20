@@ -717,6 +717,55 @@ function queryStudentSummary(f) {
     WHERE ${FILTER_SQL} GROUP BY st.id ORDER BY total DESC, st.name LIMIT 5000`).all(f);
 }
 
+/** كشف شعبة ليوم محدد: كل طلاب الشعبة وحالة كل منهم في كل حصة */
+admin.get('/sections/:id/day', (req, res) => {
+  const sec = db.prepare('SELECT id, grade, section FROM sections WHERE id = ? AND school_id = ?').get(Number(req.params.id), req.schoolId);
+  if (!sec) throw new HttpError(404, 'الشعبة غير موجودة');
+  const date = isDate(req.query.date) ? req.query.date : today();
+  const periods = db.prepare('SELECT number FROM periods WHERE school_id = ? ORDER BY number').all(req.schoolId).map((p) => p.number);
+  const recs = db.prepare(`SELECT r.student_id, r.period_number, r.type, r.note, COALESCE(t.name, r.teacher_name) AS teacher
+    FROM records r LEFT JOIN teachers t ON t.id = r.teacher_id
+    WHERE r.school_id = ? AND r.section_id = ? AND r.date = ?`).all(req.schoolId, sec.id, date);
+  const withRecords = new Set(recs.map((r) => r.student_id));
+  // الطلاب النشطون في الشعبة، ومن انتقل منها وله رصد في ذلك اليوم
+  const students = db.prepare(`SELECT id, name, student_no, status, section_id FROM students
+    WHERE school_id = ? AND (section_id = ? AND status = 'active' OR id IN (SELECT student_id FROM records WHERE section_id = ? AND date = ?))`)
+    .all(req.schoolId, sec.id, sec.id, date)
+    .sort((a, b) => collator.compare(a.name, b.name));
+  const byStudent = {};
+  for (const r of recs) (byStudent[r.student_id] ||= {})[r.period_number] = { type: r.type, note: r.note, teacher: r.teacher };
+  const totals = { absent: 0, late: 0, escape: 0, students: withRecords.size, size: students.filter((s) => s.status === 'active' && s.section_id === sec.id).length };
+  recs.forEach((r) => totals[r.type]++);
+  // الحصص التي رُصد فيها شيء (لمعرفة هل رصد المعلمون الحصة)
+  const markedPeriods = [...new Set(recs.map((r) => r.period_number))];
+  res.json({ section: sec, date, periods, marked_periods: markedPeriods, totals,
+    students: students.map((s) => ({ id: s.id, name: s.name, student_no: s.student_no, status: s.status, marks: byStudent[s.id] || {} })) });
+});
+
+/** رصد أو تصحيح من الإدارة لأي يوم سابق (الحالة null = حاضر) */
+admin.put('/marks', (req, res) => {
+  const date = isDate(req.body.date) ? req.body.date : null;
+  if (!date) throw new HttpError(400, 'التاريخ غير صحيح');
+  if (date > today()) throw new HttpError(400, 'لا يمكن الرصد لتاريخ قادم');
+  const st = db.prepare('SELECT id, section_id FROM students WHERE id = ? AND school_id = ?').get(Number(req.body.student_id), req.schoolId);
+  if (!st) throw new HttpError(404, 'الطالب غير موجود');
+  const period = Number(req.body.period);
+  if (!db.prepare('SELECT 1 FROM periods WHERE school_id = ? AND number = ?').get(req.schoolId, period)) throw new HttpError(400, 'الحصة غير صحيحة');
+  const type = req.body.type === null || req.body.type === '' ? null : req.body.type;
+  if (type !== null && !TYPES.includes(type)) throw new HttpError(400, 'نوع غير صحيح');
+  if (type === null) {
+    db.prepare('DELETE FROM records WHERE school_id = ? AND student_id = ? AND date = ? AND period_number = ?').run(req.schoolId, st.id, date, period);
+  } else {
+    // الشعبة في السجل: شعبة الطالب في ذلك اليوم إن سبق رصده فيه، وإلا شعبته الحالية
+    const prev = db.prepare('SELECT section_id FROM records WHERE school_id = ? AND student_id = ? AND date = ? LIMIT 1').get(req.schoolId, st.id, date);
+    db.prepare(`INSERT INTO records (school_id, student_id, section_id, date, period_number, type, teacher_id, teacher_name, note)
+      VALUES (?,?,?,?,?,?,NULL,'الإدارة',?)
+      ON CONFLICT (school_id, student_id, date, period_number) DO UPDATE SET type = excluded.type, note = COALESCE(excluded.note, records.note)`)
+      .run(req.schoolId, st.id, prev ? prev.section_id : st.section_id, date, period, type, str(req.body.note, 300) || null);
+  }
+  res.json({ ok: true });
+});
+
 admin.get('/records', (req, res) => {
   const f = recordFilters(req);
   res.json({ filters: f, records: queryRecords(f) });
