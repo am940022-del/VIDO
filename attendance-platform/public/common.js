@@ -53,7 +53,33 @@ function fmtDate(d, short) {
   } catch { return d; }
 }
 
-/* تطبيع البحث العربي: تجاهل الهمزات والتاء المربوطة والألف المقصورة والتشكيل */
+/* البحث بالأسماء — نفس قواعد src/search.js:
+ * لا يفرّق بين الهمزات (أحمد = احمد)، ة/ه، ى/ي، ولا يتأثر بالتشكيل، و«عبد الله» = «عبدالله».
+ * يبحث بالكلمات بأي ترتيب ويتجاهل «بن/بنت»: «أحمد القنوبي» يجد «أحمد بن محمد بن راشد القنوبي». */
+const NAME_STOP = new Set(['بن', 'بنت', 'ابن', 'ابنه', 'ولد', 'bin', 'bint']);
+function normalizeName(s) {
+  return String(s || '').toLowerCase()
+    .replace(/[\u064B-\u065F\u0670\u0640\u200c-\u200f]/g, '')
+    .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىئ]/g, 'ي').replace(/ؤ/g, 'و')
+    .replace(/[٠-٩]/g, (c) => '٠١٢٣٤٥٦٧٨٩'.indexOf(c))
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/(^|\s)(عبد|ابو|ابي|ام) (?=\S)/g, '$1$2')
+    .replace(/\s+/g, ' ').trim();
+}
+function nameMatch(name, q) {
+  const tokens = normalizeName(q).split(' ').filter((t) => t && !NAME_STOP.has(t));
+  if (!tokens.length) return true;
+  const words = normalizeName(name).split(' ');
+  const used = new Set();
+  return tokens.every((t) => {
+    const i = words.findIndex((w, k) => !used.has(k) && w.includes(t));
+    if (i < 0) return false;
+    used.add(i);
+    return true;
+  });
+}
+
+/* تطبيع عام (للمقارنات غير الاسمية) */
 function normAr(s) {
   return String(s || '').toLowerCase()
     .replace(/[٠-٩]/g, (c) => '٠١٢٣٤٥٦٧٨٩'.indexOf(c))

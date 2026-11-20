@@ -517,9 +517,9 @@ async function loadTeachers() {
 }
 
 function renderTeachers() {
-  const q = normAr($('#t-q').value);
+  const q = $('#t-q').value.trim();
   const sub = $('#t-filter').value;
-  const list = teachers.filter((t) => (!q || normAr(t.name).includes(q)) && (!sub || (sub === '__none' ? !t.subject : t.subject === sub)));
+  const list = teachers.filter((t) => (!q || nameMatch(t.name, q)) && (!sub || (sub === '__none' ? !t.subject : t.subject === sub)));
   $('#t-count').textContent = `(${list.length})`;
   $('#t-list').innerHTML = list.length ? list.map((t, i) => `<tr class="${tSelected.has(t.id) ? 'selected' : ''}">
     <td><input type="checkbox" class="check" data-tpick="${t.id}" ${tSelected.has(t.id) ? 'checked' : ''} aria-label="تحديد ${esc(t.name)}"></td>
@@ -546,8 +546,8 @@ $('#t-list').addEventListener('change', (e) => {
   renderTeachers();
 });
 $('#t-all').addEventListener('change', (e) => {
-  const q = normAr($('#t-q').value), sub = $('#t-filter').value;
-  teachers.filter((t) => (!q || normAr(t.name).includes(q)) && (!sub || (sub === '__none' ? !t.subject : t.subject === sub)))
+  const q = $('#t-q').value.trim(), sub = $('#t-filter').value;
+  teachers.filter((t) => (!q || nameMatch(t.name, q)) && (!sub || (sub === '__none' ? !t.subject : t.subject === sub)))
     .forEach((t) => (e.target.checked ? tSelected.add(t.id) : tSelected.delete(t.id)));
   renderTeachers();
 });

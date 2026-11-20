@@ -418,7 +418,7 @@ admin.get('/students', (req, res) => {
   const rows = db.prepare(`SELECT st.id, st.name, st.student_no, st.guardian_phone, st.status, st.status_date, st.status_note,
       sec.grade, sec.section, sec.id AS section_id
     FROM students st JOIN sections sec ON sec.id = st.section_id
-    WHERE st.school_id = @school AND (@sec IS NULL OR st.section_id = @sec) AND (@q = '' OR st.name LIKE '%' || @q || '%')
+    WHERE st.school_id = @school AND (@sec IS NULL OR st.section_id = @sec) AND (@q = '' OR name_match(st.name, @q))
       AND (@status = '' OR st.status = @status)
     LIMIT 5000`).all({ school: req.schoolId, sec: secId, q, status });
   res.json(rows.sort((a, b) => collator.compare(a.grade, b.grade) || collator.compare(a.section, b.section) || collator.compare(a.name, b.name)));
@@ -673,7 +673,7 @@ function recordFilters(req) {
 
 const FILTER_SQL = `r.school_id = @school AND r.date BETWEEN @from AND @to
   AND (@grade = '' OR sec.grade = @grade) AND (@sec IS NULL OR r.section_id = @sec)
-  AND (@type = '' OR r.type = @type) AND (@q = '' OR st.name LIKE '%' || @q || '%')`;
+  AND (@type = '' OR r.type = @type) AND (@q = '' OR name_match(st.name, @q))`;
 
 function queryRecords(f) {
   return db.prepare(`SELECT r.id, r.date, r.period_number, r.type, r.note, r.created_at,

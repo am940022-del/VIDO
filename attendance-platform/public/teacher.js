@@ -318,7 +318,7 @@ function makePicker({ root, items, label, matches, onChoose, selectedId }) {
   const btn = $('.picker-btn', root), panel = $('.picker-panel', root), input = $('input', root), list = $('.picker-list', root);
   const ctl = {
     render() {
-      const q = normAr(input.value);
+      const q = input.value.trim();
       const sel = selectedId();
       const found = items().filter((it) => !q || matches(it, q));
       list.innerHTML = found.length
@@ -366,7 +366,7 @@ makePicker({
   root: $('#picker'),
   items: () => state.info?.teachers || [],
   selectedId: () => Number(lsGet(K.teacher)) || null,
-  matches: (t, q) => normAr(t.name).includes(q) || normAr(t.subject).includes(q),
+  matches: (t, q) => nameMatch(t.name, q) || nameMatch(t.subject, q),
   label: (t) => `<span>${esc(t.name)}</span>${t.subject ? `<span class="muted small">${esc(t.subject)}</span>` : ''}`,
   onChoose: (t) => {
     lsSet(K.teacher, String(t.id));
@@ -390,7 +390,7 @@ makePicker({
   root: $('#student-picker'),
   items: () => state.students,
   selectedId: () => null,
-  matches: (s, q) => normAr(s.name).includes(q),
+  matches: (s, q) => nameMatch(s.name, q),
   label: (s) => `<span><span class="muted num">${state.students.indexOf(s) + 1}.</span> ${esc(s.name)}</span>${s.status ? `<span class="badge ${s.status}">${TYPE_LABEL[s.status]}</span>` : ''}`,
   onChoose: (s) => openSheet(s),
 });

@@ -151,8 +151,8 @@ function match(sc) {
 }
 
 function render() {
-  const q = normAr($('#q').value);
-  const list = data.schools.filter((sc) => match(sc) && (!q || normAr(sc.name).includes(q) || sc.email.toLowerCase().includes(q)));
+  const q = $('#q').value.trim();
+  const list = data.schools.filter((sc) => match(sc) && (!q || nameMatch(sc.name, q) || nameMatch(sc.admin_name, q) || sc.email.toLowerCase().includes(q.toLowerCase())));
   $('#rows').innerHTML = list.length ? list.map((sc) => {
     const st = sc.status === 'pending' ? 'pending' : sc.status === 'suspended' ? 'suspended' : sc.access;
     const [label, cls] = STATUS[st] || STATUS.ok;

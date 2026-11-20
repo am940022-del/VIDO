@@ -463,3 +463,22 @@ test('المعلمون: ملف موظفي الوزارة، الإدخال الج
   assert.equal(after.find((t) => t.name === 'روى جورجي').subject, 'لغة إنجليزية');
   assert.equal(after.find((t) => t.name === 'ماجد بن علي').subject, 'أحياء');
 });
+
+test('البحث بالأسماء: الهمزات، أجزاء الاسم بدون «بن»، وعبد الله', async () => {
+  const { nameMatches } = require('../src/search');
+  const full = 'أحمد بن محمد بن راشد القنوبي';
+  for (const q of ['احمد', 'أحمد', 'إحمد', 'احمد القنوبي', 'القنوبي أحمد', 'أحمد بن راشد', 'قنوبي', 'اَحْمَد']) assert.ok(nameMatches(full, q), q);
+  for (const q of ['أحمد سعيد', 'محمد محمد', 'خالد']) assert.ok(!nameMatches(full, q), q);
+  assert.ok(nameMatches('عبد الله بن سالم', 'عبدالله'));
+  assert.ok(nameMatches('عبدالله بن سالم', 'عبد الله سالم'));
+  assert.ok(nameMatches('فاطمة بنت علي', 'فاطمه علي'));
+
+  const a = client();
+  await register(a, { schoolName: 'ي', adminName: 'م', email: 'search@x.com', password: 'password1' });
+  await a('POST', '/api/admin/students/paste', { grade: '12', section: '1', names: 'أحمد بن محمد بن راشد القنوبي\nإبراهيم بن خليل الرحبي\nعبد الله بن سعيد الحارثي' });
+  const q = async (s) => (await a('GET', '/api/admin/students?q=' + encodeURIComponent(s))).data.map((x) => x.name);
+  assert.deepEqual(await q('احمد القنوبي'), ['أحمد بن محمد بن راشد القنوبي']);
+  assert.deepEqual(await q('ابراهيم'), ['إبراهيم بن خليل الرحبي']);
+  assert.deepEqual(await q('عبدالله الحارثي'), ['عبد الله بن سعيد الحارثي']);
+  assert.equal((await q('بن')).length, 3); // «بن» وحدها لا تُصفّي
+});

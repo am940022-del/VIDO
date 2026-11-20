@@ -159,4 +159,8 @@ if (!db.prepare('PRAGMA table_info(teachers)').all().some((c) => c.name === 'job
   db.exec('ALTER TABLE teachers ADD COLUMN job TEXT');
 }
 
+/* name_match(name, query): بحث الأسماء العربية بالكلمات ومع اختلاف الهمزات (src/search.js) */
+const { nameMatches } = require('./search');
+db.function('name_match', { deterministic: true }, (name, q) => (nameMatches(name, q) ? 1 : 0));
+
 module.exports = db;
