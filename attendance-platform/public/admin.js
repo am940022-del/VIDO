@@ -49,16 +49,55 @@ function renderLogo() {
   $('#logo-box').innerHTML = url ? `<img class="logo-preview" src="${esc(url)}" alt="شعار المدرسة">` : '<div class="logo-empty">لا يوجد شعار</div>';
   $('#logo-remove').classList.toggle('hidden', !url);
 }
+/**
+ * تجهيز الشعار في المتصفح قبل الرفع: أي صورة بأي حجم أو صيغة يقرأها الجهاز
+ * (ومنها صور الآيفون HEIC) تُصغَّر إلى 512 بكسل كحد أقصى وتُحوَّل إلى PNG.
+ */
+function prepareLogo(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('تعذر قراءة الملف'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('هذا الملف ليس صورة يمكن قراءتها. جرّب صورة PNG أو JPG.'));
+      img.onload = () => {
+        const max = 512;
+        const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.naturalWidth * scale));
+        c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+        const ctx = c.getContext('2d');
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        c.toBlob((b) => (b ? resolve(b) : reject(new Error('تعذر تجهيز الصورة'))), 'image/png');
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 $('#logo-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = $('#logo-file').files[0];
-  if (f && f.size > 1024 * 1024) return toast('حجم الصورة أكبر من 1 ميجابايت');
+  if (!f) return toast('اختر صورة الشعار');
+  const btn = e.target.querySelector('button[type=submit]');
+  btn.disabled = true;
+  btn.textContent = 'جارٍ الرفع…';
   try {
-    await api(`${A}/logo`, { method: 'POST', form: new FormData(e.target) });
+    const blob = await prepareLogo(f);
+    const fd = new FormData();
+    fd.append('logo', blob, 'logo.png');
+    await api(`${A}/logo`, { method: 'POST', form: fd });
     e.target.reset();
     await loadMe();
-    toast('تم رفع الشعار');
-  } catch (ex) { toast(ex.message); }
+    toast('تم رفع الشعار ✓ يظهر للمعلمين عند فتح الرابط أو تحديث الصفحة');
+  } catch (ex) {
+    toast(ex.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'رفع الشعار';
+  }
 });
 $('#logo-remove').addEventListener('click', async () => {
   if (!confirm('إزالة شعار المدرسة؟')) return;

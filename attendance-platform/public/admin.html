@@ -343,11 +343,11 @@
     <section data-panel="settings" class="stack-lg hidden" style="margin-top:16px">
       <div class="card">
         <h3 class="card-title">شعار المدرسة</h3>
-        <p class="card-sub">يظهر في أعلى لوحة المدير وصفحة المعلمين، وفي تقارير PDF وكشوف أولياء الأمور. صورة PNG أو JPG أو WebP حتى 1 ميجابايت، ويُفضّل أن تكون مربعة.</p>
+        <p class="card-sub">يظهر في أعلى لوحة المدير وصفحة المعلمين، وفي تقارير PDF وكشوف أولياء الأمور. أي صورة من جهازك أو جوالك (تُصغَّر تلقائياً)، ويُفضّل أن تكون مربعة بخلفية بيضاء أو شفافة.</p>
         <div class="row" style="gap:24px;align-items:center">
           <div id="logo-box"></div>
           <form id="logo-form" class="stack" style="flex:1;min-width:220px">
-            <input id="logo-file" name="logo" type="file" accept="image/png,image/jpeg,image/webp" required aria-label="ملف الشعار">
+            <input id="logo-file" name="logo" type="file" accept="image/*" required aria-label="ملف الشعار">
             <div class="row">
               <button class="btn btn-primary" type="submit">رفع الشعار</button>
               <button class="btn btn-ghost btn-danger hidden" id="logo-remove" type="button">إزالة الشعار</button>

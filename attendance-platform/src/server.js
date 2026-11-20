@@ -46,7 +46,7 @@ const upload = multer({
   fileFilter: (req, file, cb) => cb(null, /\.(xlsx|xls|csv|html?)$/i.test(file.originalname)),
 });
 
-const logoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 1024 * 1024 } });
+const logoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
 
 /** نوع الصورة من محتواها الفعلي (لا من الامتداد): PNG أو JPEG أو WebP فقط — بدون SVG */
 function imageType(buf) {
