@@ -932,7 +932,9 @@ app.use('/api/t/:token', teacher);
 /* ---------------- الصفحات ---------------- */
 
 const pub = path.join(__dirname, '..', 'public');
-app.use(express.static(pub, { index: false, extensions: ['html'], maxAge: '1h' }));
+// بدون تخزين طويل: المتصفح يتحقق في كل زيارة (رد 304 خفيف إن لم يتغير شيء)،
+// حتى تصل التحديثات للجوالات فوراً بعد النشر
+app.use(express.static(pub, { index: false, extensions: ['html'], setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 app.get('/', (req, res) => res.sendFile(path.join(pub, 'index.html')));
 // الشعارات: الرابط يتغير مع كل رفع، لذلك تُخزّن في المتصفح طويلاً
 app.get('/logos/:key', (req, res) => {
