@@ -83,13 +83,17 @@
 
       <div>
         <div class="row between" style="margin-bottom:12px">
-          <h2>ملخص الطلاب</h2>
+          <div>
+            <h2>ملخص الطلاب وإشعار أولياء الأمور</h2>
+            <p class="muted small">لكل طالب: كشف PDF، ملف Excel، أو إرسال الملخص لولي الأمر عبر واتساب أو رسالة نصية.</p>
+          </div>
           <div class="row">
             <button class="btn btn-sm" id="o-xlsx" type="button">تصدير Excel</button>
             <button class="btn btn-sm" id="o-pdf" type="button">تقرير PDF</button>
+            <button class="btn btn-sm btn-primary" id="o-letters" type="button">كشوف أولياء الأمور (PDF)</button>
           </div>
         </div>
-        <div class="table-wrap"><table><thead><tr><th>#</th><th>الطالب</th><th>الصف</th><th>الشعبة</th><th>غياب</th><th>تأخير</th><th>هروب</th><th>المجموع</th></tr></thead><tbody id="o-students"></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>#</th><th>الطالب</th><th>الصف</th><th>الشعبة</th><th>غياب</th><th>تأخير</th><th>هروب</th><th>المجموع</th><th>ولي الأمر</th></tr></thead><tbody id="o-students"></tbody></table></div>
       </div>
     </section>
 
@@ -211,6 +215,7 @@
           <h3 class="card-title">بيانات المدرسة</h3>
           <div class="field"><label for="ss-name">اسم المدرسة</label><input id="ss-name" name="name" required></div>
           <div class="field"><label for="ss-admin">اسم المدير</label><input id="ss-admin" name="adminName" required></div>
+          <div class="field"><label for="ss-cc">رمز الدولة لأرقام أولياء الأمور</label><input id="ss-cc" name="countryCode" inputmode="numeric" maxlength="4" dir="ltr" placeholder="966"><p class="muted small">يُستخدم لتحويل الأرقام مثل 05xxxxxxxx إلى صيغة واتساب الدولية.</p></div>
           <button class="btn" style="margin-top:24px" type="submit">حفظ</button>
         </form>
         <form class="card" id="set-pass">

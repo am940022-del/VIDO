@@ -86,6 +86,30 @@ test('دورة كاملة: تسجيل، رفع، رصد، إحصاء، تصدي�
   assert.equal((await t('PUT', `/api/t/${token}/mark`, { student_id: list.students[1].id, period: 3, type: 'escape' })).status, 200);
   assert.equal((await t('PUT', `/api/t/${token}/mark`, { student_id: st.id, period: 99, type: 'late' })).status, 400);
 
+  // رصد مجمّع في طلب واحد + إلغاء + رفض تاريخ قديم
+  const batch = await t('POST', `/api/t/${token}/marks`, { teacher_id: info.teachers[0].id, items: [
+    { student_id: st.id, period: 4, type: 'late' },
+    { student_id: list.students[1].id, period: 4, type: 'absent' },
+    { student_id: list.students[1].id, period: 4, type: null },
+    { student_id: st.id, period: 5, type: 'late', date: '2000-01-01' },
+  ] });
+  assert.equal(batch.status, 200);
+  assert.equal(batch.data.saved, 3);
+  assert.equal(batch.data.results[3].reason, 'stale');
+
+  // كشف الطالب لولي الأمر
+  await a('PATCH', `/api/admin/students/${st.id}`, { guardian_phone: '0551234567' });
+  const rep = (await a('GET', `/api/admin/student-reports?student_id=${st.id}`)).data;
+  assert.equal(rep.students[0].totals.absent, 1);
+  assert.equal(rep.students[0].totals.late, 1);
+  assert.equal(rep.students[0].guardian_phone, '0551234567');
+  assert.equal(rep.country_code, '966');
+  const all = (await a('GET', '/api/admin/student-reports')).data;
+  assert.equal(all.students.length, 2);
+  const sx = await a('GET', `/api/admin/students/${st.id}/export.xlsx`);
+  assert.equal(sx.status, 200);
+  await t('POST', `/api/t/${token}/marks`, { items: [{ student_id: st.id, period: 4, type: null }] });
+
   const stats = (await a('GET', '/api/admin/stats')).data;
   assert.equal(stats.totals.total, 2);
   assert.equal(stats.totals.absent, 1);
@@ -112,6 +136,11 @@ test('دورة كاملة: تسجيل، رفع، رصد، إحصاء، تصدي�
   // بدون تسجيل دخول
   assert.equal((await client()('GET', '/api/admin/students')).status, 401);
   assert.equal((await t('GET', '/api/t/invalid-token-123456789/info')).status, 404);
+
+  assert.equal((await b('GET', `/api/admin/student-reports?student_id=${st.id}`)).data.students.length, 0);
+  assert.equal((await b('GET', `/api/admin/students/${st.id}/export.xlsx`)).status, 404);
+  assert.equal((await b('PATCH', `/api/admin/students/${st.id}`, { guardian_phone: '1' })).status, 404);
+  assert.equal((await t('POST', `/api/t/${tb}/marks`, { items: [{ student_id: st.id, period: 1, type: 'late' }] })).data.saved, 0);
 
   // تغيير الرابط يوقف القديم
   await a('POST', '/api/admin/rotate-link');

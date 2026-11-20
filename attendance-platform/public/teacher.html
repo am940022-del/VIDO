@@ -22,10 +22,11 @@
     <!-- 1) اختيار الصف -->
     <section id="view-grades" class="hidden">
       <div class="teacher-head stack">
-        <div>
-          <label for="teacher-select">اسم المعلم</label>
+        <div id="teacher-box">
+          <label for="teacher-select">اسم المعلم (يُحفظ على جهازك)</label>
           <select id="teacher-select"><option value="">— اختر اسمك —</option></select>
         </div>
+        <button type="button" id="resume" class="resume hidden"></button>
       </div>
       <p class="step-title">اختر الصف</p>
       <div class="tiles" id="grade-tiles"></div>
@@ -38,6 +39,7 @@
         <button class="btn btn-ghost" id="back-grades" type="button">→ الصفوف</button>
         <h1 id="pick-grade" class="grow"></h1>
       </div>
+      <p class="alert alert-ok" id="pick-hint" style="margin-bottom:24px"></p>
       <div class="stack-lg">
         <div>
           <p class="step-title">الشعبة</p>
@@ -47,7 +49,6 @@
           <p class="step-title">الحصة</p>
           <div class="chips" id="period-chips"></div>
         </div>
-        <button class="btn btn-primary btn-block" id="open-list" type="button" disabled>عرض قائمة الطلاب</button>
       </div>
     </section>
 
@@ -57,12 +58,16 @@
         <div class="crumbs" id="crumbs"></div>
         <button class="btn btn-sm" id="change-pick" type="button">تغيير</button>
       </div>
+      <p class="muted small">الجميع حاضرون افتراضياً — اضغط فقط على حالة الغائب أو المتأخر أو الهارب. ضغطة أخرى تلغيها، والضغط على الاسم يضيف ملاحظة.</p>
       <div class="sticky-tools">
         <div class="search">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
           <input id="search" type="search" placeholder="ابحث باسم الطالب" autocomplete="off" aria-label="ابحث باسم الطالب">
         </div>
-        <div class="summary-bar" id="summary"></div>
+        <div class="row between" style="margin-top:12px">
+          <div class="summary-bar" id="summary" style="margin:0"></div>
+          <span class="save-state small" id="save-state" role="status" aria-live="polite"></span>
+        </div>
       </div>
       <div class="students" id="students"></div>
     </section>
@@ -70,7 +75,7 @@
 
   <div id="sheet" class="sheet-backdrop hidden">
     <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-name">
-      <p class="muted small">حدد حالة الطالب في هذه الحصة</p>
+      <p class="muted small">حدد الحالة مع ملاحظة</p>
       <h3 id="sheet-name"></h3>
       <div class="choice-grid">
         <button class="choice absent" data-type="absent" type="button">غياب<small>لم يحضر</small></button>

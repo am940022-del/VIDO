@@ -58,3 +58,45 @@ function normAr(s) {
     .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
     .replace(/\s+/g, ' ').trim();
 }
+
+/* ---------- التواصل مع ولي الأمر ---------- */
+function normalizePhone(raw, cc = '966') {
+  let d = String(raw || '')
+    .replace(/[٠-٩]/g, (c) => '٠١٢٣٤٥٦٧٨٩'.indexOf(c))
+    .replace(/[۰-۹]/g, (c) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(c))
+    .replace(/\D/g, '');
+  if (!d) return '';
+  if (d.startsWith('00')) d = d.slice(2);
+  else if (d.startsWith('0')) d = cc + d.slice(1);
+  else if (d.length <= 9) d = cc + d;
+  return d;
+}
+
+function guardianMessage(school, from, to, st) {
+  const t = st.totals;
+  const lines = [
+    `السلام عليكم ورحمة الله،`,
+    `ولي أمر الطالب: ${st.name} (${st.grade} / ${st.section})`,
+    ``,
+    `نفيدكم من ${school} بملخص حضور ابنكم ${from === to ? `بتاريخ ${from}` : `في الفترة من ${from} إلى ${to}`}:`,
+    `• الغياب: ${t.absent} حصة${st.absentDays ? ` (في ${st.absentDays} يوم)` : ''}`,
+    `• التأخير: ${t.late}`,
+    `• الهروب: ${t.escape}`,
+  ];
+  if (st.records && st.records.length) {
+    lines.push('', 'التفاصيل:');
+    const max = 20;
+    st.records.slice(0, max).forEach((r) => lines.push(`- ${r.date} الحصة ${r.period_number}: ${TYPE_LABEL[r.type]}`));
+    if (st.records.length > max) lines.push(`… و${st.records.length - max} حالات أخرى`);
+  }
+  lines.push('', 'نأمل منكم المتابعة والتواصل مع المدرسة.', `إدارة ${school}`);
+  return lines.join('\n');
+}
+
+function whatsappUrl(phone, cc, text) {
+  const p = normalizePhone(phone, cc);
+  return `https://wa.me/${p}?text=${encodeURIComponent(text)}`;
+}
+function smsUrl(phone, cc, text) {
+  return `sms:+${normalizePhone(phone, cc)}?&body=${encodeURIComponent(text)}`;
+}

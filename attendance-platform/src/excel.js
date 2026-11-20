@@ -205,4 +205,24 @@ async function exportRecords({ schoolName, from, to, records, summary }) {
   return wb.xlsx.writeBuffer();
 }
 
-module.exports = { parseStudents, parseTeachers, templateStudents, templateTeachers, exportRecords, TYPE_LABEL };
+async function exportStudent(data, st) {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('كشف الطالب');
+  ws.views = [{ rightToLeft: true }];
+  const info = [
+    ['المدرسة', data.school], ['اسم الطالب', st.name], ['الصف', st.grade], ['الشعبة', st.section],
+    ['رقم الطالب', st.student_no || ''], ['الفترة', `${data.from} إلى ${data.to}`],
+    ['عدد حصص الغياب', st.totals.absent], ['أيام الغياب', st.absentDays], ['التأخير', st.totals.late], ['الهروب', st.totals.escape],
+  ];
+  info.forEach((r) => ws.addRow(r));
+  ws.getColumn(1).font = { bold: true };
+  ws.addRow([]);
+  const head = ws.addRow(['التاريخ', 'الحصة', 'الحالة', 'المعلم', 'ملاحظة']);
+  head.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  head.eachCell((c) => (c.fill = HEADER_FILL));
+  for (const r of st.records) ws.addRow([r.date, r.period_number, TYPE_LABEL[r.type], r.teacher_name || '', r.note || '']);
+  [18, 30, 10, 22, 30].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  return wb.xlsx.writeBuffer();
+}
+
+module.exports = { exportStudent, parseStudents, parseTeachers, templateStudents, templateTeachers, exportRecords, TYPE_LABEL };

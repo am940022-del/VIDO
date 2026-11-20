@@ -3,6 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
 const helmet = require('helmet');
+const compression = require('compression');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
@@ -32,6 +33,7 @@ app.use(
     referrerPolicy: { policy: 'no-referrer' }, // لا يتسرب رابط المعلمين لمواقع أخرى
   })
 );
+app.use(compression());
 app.use(express.json({ limit: '200kb' }));
 app.use(cookieParser());
 
@@ -141,7 +143,7 @@ const admin = express.Router();
 admin.use(requireAdmin);
 
 admin.get('/me', (req, res) => {
-  const s = db.prepare('SELECT id, name, admin_name, email, teacher_token, created_at FROM schools WHERE id = ?').get(req.schoolId);
+  const s = db.prepare('SELECT id, name, admin_name, email, teacher_token, country_code, created_at FROM schools WHERE id = ?').get(req.schoolId);
   const counts = db.prepare(`SELECT
       (SELECT COUNT(*) FROM students WHERE school_id = @id) AS students,
       (SELECT COUNT(*) FROM teachers WHERE school_id = @id) AS teachers,
@@ -153,8 +155,9 @@ admin.get('/me', (req, res) => {
 admin.put('/settings', (req, res) => {
   const name = str(req.body.name, 150);
   const adminName = str(req.body.adminName, 100);
+  const cc = String(req.body.countryCode || '966').replace(/\D/g, '').slice(0, 4) || '966';
   if (!name || !adminName) throw new HttpError(400, 'الحقول مطلوبة');
-  db.prepare('UPDATE schools SET name = ?, admin_name = ? WHERE id = ?').run(name, adminName, req.schoolId);
+  db.prepare('UPDATE schools SET name = ?, admin_name = ?, country_code = ? WHERE id = ?').run(name, adminName, cc, req.schoolId);
   res.json({ ok: true });
 });
 
@@ -369,6 +372,54 @@ admin.get('/stats', (req, res) => {
   res.json({ filters: f, totals, byDay, bySection, byPeriod, top: { absent: top('absent'), late: top('late'), escape: top('escape') }, students });
 });
 
+admin.patch('/students/:id', (req, res) => {
+  const phone = str(req.body.guardian_phone, 30) || null;
+  const r = db.prepare('UPDATE students SET guardian_phone = ? WHERE id = ? AND school_id = ?').run(phone, Number(req.params.id), req.schoolId);
+  if (!r.changes) throw new HttpError(404, 'الطالب غير موجود');
+  res.json({ ok: true });
+});
+
+/**
+ * كشوف أولياء الأمور: لكل طالب سجلاته في الفترة.
+ * student_id لطالب واحد، أو بدونها لكل من لديه حالات (مع فلاتر الصف/الشعبة/الحالة).
+ */
+function studentReports(req) {
+  const f = recordFilters(req);
+  const sid = Number(req.query.student_id) || null;
+  const students = sid
+    ? db.prepare(`SELECT st.id, st.name, st.student_no, st.guardian_phone, sec.grade, sec.section
+        FROM students st JOIN sections sec ON sec.id = st.section_id WHERE st.id = ? AND st.school_id = ?`).all(sid, req.schoolId)
+    : queryStudentSummary(f).slice(0, 1000);
+  const recStmt = db.prepare(`SELECT r.date, r.period_number, r.type, r.note, COALESCE(t.name, r.teacher_name) AS teacher_name
+    FROM records r LEFT JOIN teachers t ON t.id = r.teacher_id
+    WHERE r.school_id = @school AND r.student_id = @id AND r.date BETWEEN @from AND @to AND (@type = '' OR r.type = @type)
+    ORDER BY r.date, r.period_number`);
+  const phoneStmt = db.prepare('SELECT student_no, guardian_phone FROM students WHERE id = ?');
+  const list = students.map((s) => {
+    const records = recStmt.all({ ...f, id: s.id });
+    const extra = phoneStmt.get(s.id);
+    const totals = { absent: 0, late: 0, escape: 0 };
+    records.forEach((r) => totals[r.type]++);
+    // أيام الغياب الكامل = أيام غاب فيها كل الحصص المرصودة لذلك اليوم
+    const days = new Set(records.filter((r) => r.type === 'absent').map((r) => r.date));
+    return { id: s.id, name: s.name, grade: s.grade, section: s.section, student_no: extra.student_no, guardian_phone: extra.guardian_phone, totals, absentDays: days.size, records };
+  });
+  const school = db.prepare('SELECT name, country_code FROM schools WHERE id = ?').get(req.schoolId);
+  return { school: school.name, country_code: school.country_code, from: f.from, to: f.to, students: list };
+}
+
+admin.get('/student-reports', (req, res) => res.json(studentReports(req)));
+
+admin.get('/students/:id/export.xlsx', wrap(async (req, res) => {
+  req.query.student_id = req.params.id;
+  const data = studentReports(req);
+  if (!data.students.length) throw new HttpError(404, 'الطالب غير موجود');
+  const buf = await xl.exportStudent(data, data.students[0]);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="student_${data.students[0].id}_${data.from}_${data.to}.xlsx"`);
+  res.send(Buffer.from(buf));
+}));
+
 admin.get('/export.xlsx', wrap(async (req, res) => {
   const f = recordFilters(req);
   const school = db.prepare('SELECT name FROM schools WHERE id = ?').get(req.schoolId);
@@ -392,7 +443,15 @@ app.use('/api/admin', admin);
 
 /* ---------------- واجهة المعلمين (برابط المدرسة فقط، بدون تسجيل دخول) ---------------- */
 
-const teacherLimiter = rateLimit({ windowMs: 60 * 1000, limit: 300, standardHeaders: true, legacyHeaders: false });
+// معلمو المدرسة غالباً يتشاركون نفس عنوان IP (شبكة المدرسة)، لذا الحد سخي ومرتبط بالرابط + العنوان
+const teacherLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: Number(process.env.TEACHER_RATE_LIMIT) || 1500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${req.params.token}|${rateLimit.ipKeyGenerator(req.ip)}`,
+  message: { error: 'طلبات كثيرة، حاول بعد لحظات' },
+});
 const teacher = express.Router({ mergeParams: true });
 teacher.use(teacherLimiter);
 teacher.use((req, res, next) => {
@@ -432,31 +491,64 @@ teacher.get('/sections/:id/students', (req, res) => {
   res.json({ section: sec, date, period, students });
 });
 
-teacher.put('/mark', (req, res) => {
-  const studentId = Number(req.body.student_id);
-  const period = Number(req.body.period);
-  const type = req.body.type;
-  if (!TYPES.includes(type)) throw new HttpError(400, 'نوع غير صحيح');
-  const st = db.prepare('SELECT id, section_id FROM students WHERE id = ? AND school_id = ?').get(studentId, req.schoolId);
-  if (!st) throw new HttpError(404, 'الطالب غير موجود');
-  if (!db.prepare('SELECT 1 FROM periods WHERE school_id = ? AND number = ?').get(req.schoolId, period)) throw new HttpError(400, 'الحصة غير صحيحة');
-  let teacherId = Number(req.body.teacher_id) || null;
-  let teacherName = null;
-  if (teacherId) {
-    const t = db.prepare('SELECT id, name FROM teachers WHERE id = ? AND school_id = ?').get(teacherId, req.schoolId);
-    if (t) teacherName = t.name; else teacherId = null;
-  }
-  db.prepare(`INSERT INTO records (school_id, student_id, section_id, date, period_number, type, teacher_id, teacher_name, note)
+function teacherOf(schoolId, id) {
+  id = Number(id) || null;
+  if (!id) return { id: null, name: null };
+  const t = db.prepare('SELECT id, name FROM teachers WHERE id = ? AND school_id = ?').get(id, schoolId);
+  return t || { id: null, name: null };
+}
+
+/**
+ * يطبق مجموعة تغييرات رصد في معاملة واحدة.
+ * item: { student_id, period, type: 'absent'|'late'|'escape'|null, note?, date? }
+ * type = null تعني إزالة الرصد (الطالب حاضر).
+ */
+function applyMarks(schoolId, teacher, items) {
+  const date = today();
+  const getStudent = db.prepare('SELECT id, section_id FROM students WHERE id = ? AND school_id = ?');
+  const validPeriods = new Set(db.prepare('SELECT number FROM periods WHERE school_id = ?').all(schoolId).map((p) => p.number));
+  const upsert = db.prepare(`INSERT INTO records (school_id, student_id, section_id, date, period_number, type, teacher_id, teacher_name, note)
     VALUES (?,?,?,?,?,?,?,?,?)
     ON CONFLICT (school_id, student_id, date, period_number) DO UPDATE SET
-      type = excluded.type, teacher_id = excluded.teacher_id, teacher_name = excluded.teacher_name, note = excluded.note, created_at = datetime('now')`)
-    .run(req.schoolId, st.id, st.section_id, today(), period, type, teacherId, teacherName, str(req.body.note, 300) || null);
+      type = excluded.type, teacher_id = excluded.teacher_id, teacher_name = excluded.teacher_name,
+      note = COALESCE(excluded.note, records.note), created_at = datetime('now')`);
+  const del = db.prepare('DELETE FROM records WHERE school_id = ? AND student_id = ? AND date = ? AND period_number = ?');
+  const results = [];
+  db.transaction(() => {
+    for (const it of items) {
+      const period = Number(it.period);
+      const type = it.type === null ? null : it.type;
+      // تغييرات محفوظة على الجهاز من يوم سابق تُرفض حتى لا تُسجل بتاريخ خاطئ
+      if (it.date && it.date !== date) { results.push({ ok: false, reason: 'stale' }); continue; }
+      if (type !== null && !TYPES.includes(type)) { results.push({ ok: false, reason: 'type' }); continue; }
+      if (!validPeriods.has(period)) { results.push({ ok: false, reason: 'period' }); continue; }
+      const st = getStudent.get(Number(it.student_id), schoolId);
+      if (!st) { results.push({ ok: false, reason: 'student' }); continue; }
+      if (type === null) del.run(schoolId, st.id, date, period);
+      else upsert.run(schoolId, st.id, st.section_id, date, period, type, teacher.id, teacher.name, str(it.note, 300) || null);
+      results.push({ ok: true });
+    }
+  })();
+  return results;
+}
+
+// رصد دفعة واحدة: طلب واحد لعدة طلاب (أخف على الخادم وأسرع للمعلم)
+teacher.post('/marks', (req, res) => {
+  const items = Array.isArray(req.body.items) ? req.body.items : [];
+  if (!items.length || items.length > 300) throw new HttpError(400, 'لا توجد تغييرات');
+  const results = applyMarks(req.schoolId, teacherOf(req.schoolId, req.body.teacher_id), items);
+  res.json({ ok: true, saved: results.filter((r) => r.ok).length, results });
+});
+
+teacher.put('/mark', (req, res) => {
+  if (!TYPES.includes(req.body.type)) throw new HttpError(400, 'نوع غير صحيح');
+  const [r] = applyMarks(req.schoolId, teacherOf(req.schoolId, req.body.teacher_id), [req.body]);
+  if (!r.ok) throw r.reason === 'student' ? new HttpError(404, 'الطالب غير موجود') : new HttpError(400, 'تعذر حفظ الرصد');
   res.json({ ok: true });
 });
 
 teacher.delete('/mark', (req, res) => {
-  db.prepare('DELETE FROM records WHERE school_id = ? AND student_id = ? AND date = ? AND period_number = ?')
-    .run(req.schoolId, Number(req.body.student_id), today(), Number(req.body.period));
+  applyMarks(req.schoolId, { id: null, name: null }, [{ ...req.body, type: null }]);
   res.json({ ok: true });
 });
 
@@ -465,10 +557,11 @@ app.use('/api/t/:token', teacher);
 /* ---------------- الصفحات ---------------- */
 
 const pub = path.join(__dirname, '..', 'public');
-app.use(express.static(pub, { index: false, extensions: ['html'] }));
+app.use(express.static(pub, { index: false, extensions: ['html'], maxAge: '1h' }));
 app.get('/', (req, res) => res.sendFile(path.join(pub, 'index.html')));
 app.get('/admin', (req, res) => res.sendFile(path.join(pub, 'admin.html')));
 app.get('/report', (req, res) => res.sendFile(path.join(pub, 'report.html')));
+app.get('/student-report', (req, res) => res.sendFile(path.join(pub, 'student-report.html')));
 app.get('/t/:token', (req, res) => res.sendFile(path.join(pub, 'teacher.html')));
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'غير موجود' }));

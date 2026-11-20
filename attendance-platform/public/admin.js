@@ -37,6 +37,7 @@ async function loadMe() {
   $('#setup-hint').classList.toggle('hidden', me.counts.students > 0 && me.counts.teachers > 0);
   $('#ss-name').value = me.school.name;
   $('#ss-admin').value = me.school.admin_name;
+  $('#ss-cc').value = me.school.country_code || '966';
 }
 
 async function loadSections() {
@@ -97,8 +98,9 @@ async function loadOverview() {
   }</div>`;
   $('#o-top').innerHTML = topCard('absent', 'الأكثر غياباً') + topCard('late', 'الأكثر تأخراً') + topCard('escape', 'الأكثر هروباً');
 
-  $('#o-students').innerHTML = d.students.length ? d.students.map((s, i) => `<tr><td class="num">${i + 1}</td><td>${esc(s.name)}</td><td>${esc(s.grade)}</td><td>${esc(s.section)}</td><td class="num">${s.absent}</td><td class="num">${s.late}</td><td class="num">${s.escape}</td><td class="num"><strong>${s.total}</strong></td></tr>`).join('')
-    : '<tr><td colspan="8" class="empty">لا توجد حالات مرصودة في هذه الفترة</td></tr>';
+  $('#o-students').innerHTML = d.students.length ? d.students.map((s, i) => `<tr><td class="num">${i + 1}</td><td>${esc(s.name)}</td><td>${esc(s.grade)}</td><td>${esc(s.section)}</td><td class="num">${s.absent}</td><td class="num">${s.late}</td><td class="num">${s.escape}</td><td class="num"><strong>${s.total}</strong></td>
+      <td>${guardianActions(s, from, to)}</td></tr>`).join('')
+    : '<tr><td colspan="9" class="empty">لا توجد حالات مرصودة في هذه الفترة</td></tr>';
 }
 loaders.overview = () => loadOverview().catch((e) => toast(e.message));
 $('#o-from').addEventListener('change', loaders.overview);
@@ -110,7 +112,60 @@ $$('[data-range]').forEach((b) => b.addEventListener('click', () => {
   loaders.overview();
 }));
 $('#o-xlsx').addEventListener('click', () => (location.href = `${A}/export.xlsx?${qs({ from: $('#o-from').value, to: $('#o-to').value })}`));
+$('#o-letters').addEventListener('click', () => window.open(`/student-report?${qs({ from: $('#o-from').value, to: $('#o-to').value })}`, '_blank'));
 $('#o-pdf').addEventListener('click', () => window.open(`/report?${qs({ from: $('#o-from').value, to: $('#o-to').value })}`, '_blank'));
+
+/* ---------- أولياء الأمور ---------- */
+const sentKey = (id, from, to) => `sent:${id}:${from}:${to}`;
+function isSent(id, from, to) { try { return !!localStorage.getItem(sentKey(id, from, to)); } catch { return false; } }
+
+function guardianActions(s, from, to) {
+  const sent = isSent(s.id, from, to);
+  const q = qs({ student_id: s.id, from, to });
+  const msg = s.guardian_phone
+    ? `<button class="btn btn-sm" data-wa="${s.id}" type="button">${sent ? '✓ أُرسل' : 'واتساب'}</button><button class="btn btn-ghost btn-sm" data-sms="${s.id}" type="button">SMS</button>`
+    : `<button class="btn btn-ghost btn-sm" data-phone="${s.id}" data-phone-val="" type="button">+ رقم ولي الأمر</button>`;
+  return `<div class="row" style="flex-wrap:nowrap;gap:4px">
+    <a class="btn btn-ghost btn-sm" href="/student-report?${q}" target="_blank" rel="noopener">كشف</a>
+    <a class="btn btn-ghost btn-sm" href="${A}/students/${s.id}/export.xlsx?${qs({ from, to })}">Excel</a>${msg}</div>`;
+}
+
+/* يجلب تفاصيل الطالب ثم يفتح واتساب/الرسائل بنص جاهز */
+async function sendToGuardian(id, kind, from, to) {
+  // تُفتح النافذة فوراً (قبل الانتظار) حتى لا يحجبها المتصفح
+  const win = kind === 'wa' ? window.open('', '_blank') : null;
+  try {
+    const d = await api(`${A}/student-reports?${qs({ student_id: id, from, to })}`);
+    const st = d.students[0];
+    if (!st.guardian_phone) throw new Error('لا يوجد رقم لولي الأمر');
+    const text = guardianMessage(d.school, d.from, d.to, st);
+    if (kind === 'wa') win.location.href = whatsappUrl(st.guardian_phone, d.country_code, text);
+    else location.href = smsUrl(st.guardian_phone, d.country_code, text);
+    try { localStorage.setItem(sentKey(id, from, to), '1'); } catch { /* لا شيء */ }
+    const b = document.querySelector(`[data-wa="${id}"]`);
+    if (b) b.textContent = '✓ أُرسل';
+  } catch (e) {
+    if (win) win.close();
+    toast(e.message);
+  }
+}
+
+async function editPhone(id, current) {
+  const v = prompt('رقم جوال ولي الأمر:', current || '');
+  if (v === null) return false;
+  await api(`${A}/students/${id}`, { method: 'PATCH', body: { guardian_phone: v.trim() } });
+  toast('تم حفظ الرقم');
+  return true;
+}
+
+$('#o-students').addEventListener('click', async (e) => {
+  const from = $('#o-from').value, to = $('#o-to').value;
+  const t = e.target.closest('button');
+  if (!t) return;
+  if (t.dataset.wa) sendToGuardian(t.dataset.wa, 'wa', from, to);
+  else if (t.dataset.sms) sendToGuardian(t.dataset.sms, 'sms', from, to);
+  else if (t.dataset.phone && await editPhone(t.dataset.phone, '')) loaders.overview();
+});
 
 /* ---------- السجلات ---------- */
 function recordQuery() {
@@ -149,8 +204,11 @@ async function loadStudentsTab() {
 async function loadStudentList() {
   const list = await api(`${A}/students?${qs({ section_id: $('#s-filter-section').value, q: $('#s-q').value.trim() })}`);
   $('#s-list').innerHTML = list.length ? list.map((s, i) => `<tr><td class="num">${i + 1}</td><td>${esc(s.name)}</td><td>${esc(s.grade)}</td><td>${esc(s.section)}</td>
-    <td class="num">${esc(s.student_no || '')}</td><td class="num" dir="ltr">${esc(s.guardian_phone || '')}</td>
-    <td><button class="btn btn-ghost btn-sm btn-danger" data-del-student="${s.id}" type="button">حذف</button></td></tr>`).join('')
+    <td class="num">${esc(s.student_no || '')}</td><td class="num"><bdi>${esc(s.guardian_phone || '')}</bdi></td>
+    <td><div class="row" style="flex-wrap:nowrap;gap:4px">
+      <a class="btn btn-ghost btn-sm" href="/student-report?${qs({ student_id: s.id, from: me.today.slice(0, 8) + '01', to: me.today })}" target="_blank" rel="noopener">كشف</a>
+      <button class="btn btn-ghost btn-sm" data-edit-phone="${s.id}" data-phone-val="${esc(s.guardian_phone || '')}" type="button">الجوال</button>
+      <button class="btn btn-ghost btn-sm btn-danger" data-del-student="${s.id}" type="button">حذف</button></div></td></tr>`).join('')
     : '<tr><td colspan="7" class="empty">لا يوجد طلاب</td></tr>';
 }
 loaders.students = () => loadStudentsTab().catch((e) => toast(e.message));
@@ -184,6 +242,10 @@ $('#s-add').addEventListener('submit', async (e) => {
 });
 document.addEventListener('click', async (e) => {
   const sid = e.target.dataset.delStudent, secId = e.target.dataset.delSection;
+  if (e.target.dataset.editPhone) {
+    try { if (await editPhone(e.target.dataset.editPhone, e.target.dataset.phoneVal)) loadStudentList(); } catch (ex) { toast(ex.message); }
+    return;
+  }
   if (sid && confirm('حذف الطالب وجميع سجلاته؟')) {
     await api(`${A}/students/${sid}`, { method: 'DELETE' });
     toast('تم الحذف');

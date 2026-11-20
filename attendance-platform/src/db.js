@@ -82,4 +82,9 @@ CREATE INDEX IF NOT EXISTS idx_records_school_date ON records(school_id, date);
 CREATE INDEX IF NOT EXISTS idx_records_student ON records(student_id);
 `);
 
+/* ترقيات المخطط للقواعد الموجودة */
+const schoolCols = db.prepare('PRAGMA table_info(schools)').all().map((c) => c.name);
+if (!schoolCols.includes('country_code')) db.exec("ALTER TABLE schools ADD COLUMN country_code TEXT NOT NULL DEFAULT '966'");
+db.exec('CREATE INDEX IF NOT EXISTS idx_records_student_date ON records(student_id, date)');
+
 module.exports = db;

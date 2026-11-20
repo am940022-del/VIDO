@@ -278,6 +278,45 @@ tbody tr:hover { background: color-mix(in srgb, var(--surface-2) 60%, transparen
 .student.late { border-color: var(--late); background: var(--late-soft); }
 .student.escape { border-color: var(--escape); background: var(--escape-soft); }
 
+/* صف الطالب مع أزرار الرصد بضغطة واحدة */
+.srow {
+  display: flex; align-items: center; gap: var(--space-2);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
+  padding: var(--space-2); padding-inline-start: var(--space-3); min-height: 64px;
+}
+.srow.absent { border-color: var(--absent); background: var(--absent-soft); }
+.srow.late { border-color: var(--late); background: var(--late-soft); }
+.srow.escape { border-color: var(--escape); background: var(--escape-soft); }
+.sname {
+  font: inherit; color: var(--text); background: none; border: none; cursor: pointer; text-align: start;
+  flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: var(--space-2); padding: 0;
+  flex-wrap: wrap;
+}
+.sname .idx { width: 24px; color: var(--text-2); font-size: 14px; flex: none; }
+.sname .name { font-size: 16px; font-weight: 500; line-height: 1.5; }
+.sname .others { display: flex; gap: var(--space-1); }
+.marks { display: flex; gap: var(--space-1); flex: none; }
+.mark {
+  font: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+  min-width: 52px; min-height: 48px; padding: 0 var(--space-2);
+  border-radius: var(--radius-btn); border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.mark.absent[aria-pressed='true'] { background: var(--absent); border-color: var(--absent); color: #fff; }
+.mark.late[aria-pressed='true'] { background: var(--late); border-color: var(--late); color: #fff; }
+.mark.escape[aria-pressed='true'] { background: var(--escape); border-color: var(--escape); color: #fff; }
+.mark:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 45%, transparent); outline-offset: 1px; }
+.save-state { color: var(--text-2); white-space: nowrap; }
+.save-state[data-state='saved'] { color: var(--ok); }
+.save-state[data-state='offline'] { color: var(--absent); }
+.resume {
+  font: inherit; width: 100%; cursor: pointer; text-align: start; color: var(--text);
+  display: flex; align-items: center; gap: var(--space-3);
+  background: var(--primary-soft); border: 1px solid var(--primary); border-radius: var(--radius-card);
+  padding: var(--space-3) var(--space-4); min-height: 64px; line-height: 1.5;
+}
+.resume strong { color: var(--primary); }
+
 /* ---------- نافذة الاختيار ---------- */
 .sheet-backdrop {
   position: fixed; inset: 0; background: rgba(10, 20, 18, 0.45); z-index: 50;
