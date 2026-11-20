@@ -423,3 +423,7 @@ tr.inactive td { color: var(--text-2); }
 details.pv { border: 1px solid var(--border); border-radius: var(--radius-btn); padding: var(--space-2) var(--space-4); }
 details.pv summary { cursor: pointer; font-weight: 500; min-height: 36px; display: flex; align-items: center; }
 details.pv ul { margin: var(--space-2) 0; padding-inline-start: var(--space-5); font-size: 14px; max-height: 220px; overflow-y: auto; }
+
+.badge.ok { background: var(--primary-soft); color: var(--primary); }
+.stat.tile { text-align: start; }
+.stat.late .stat-value { color: var(--late); }

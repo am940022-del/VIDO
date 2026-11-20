@@ -111,4 +111,32 @@ CREATE TABLE IF NOT EXISTS student_events (
 CREATE INDEX IF NOT EXISTS idx_events_student ON student_events(student_id);
 `);
 
+/* ---- النموذج التجاري: مالك المنصة يتحكم في وصول المدارس ---- */
+const cols = () => db.prepare('PRAGMA table_info(schools)').all().map((c) => c.name);
+if (!cols().includes('status')) {
+  // المدارس الموجودة قبل هذه الميزة تبقى مفعّلة حتى لا يُقطع عنها الوصول
+  db.exec(`ALTER TABLE schools ADD COLUMN status TEXT NOT NULL DEFAULT 'active';
+           ALTER TABLE schools ADD COLUMN plan TEXT;
+           ALTER TABLE schools ADD COLUMN subscription_end TEXT;
+           ALTER TABLE schools ADD COLUMN contact_phone TEXT;
+           ALTER TABLE schools ADD COLUMN owner_notes TEXT;
+           ALTER TABLE schools ADD COLUMN approved_at TEXT;
+           ALTER TABLE schools ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;`);
+}
+db.exec(`
+CREATE TABLE IF NOT EXISTS platform_admins (
+  id                   INTEGER PRIMARY KEY,
+  email                TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  name                 TEXT NOT NULL,
+  password_hash        TEXT NOT NULL,
+  must_change_password INTEGER NOT NULL DEFAULT 1,
+  created_at           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS owner_sessions (
+  token      TEXT PRIMARY KEY,
+  admin_id   INTEGER NOT NULL REFERENCES platform_admins(id) ON DELETE CASCADE,
+  expires_at INTEGER NOT NULL
+);
+`);
+
 module.exports = db;

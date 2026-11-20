@@ -10,6 +10,7 @@ const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
 const xl = require('./excel');
+const { ownerRouter, schoolAccess } = require('./owner');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,6 +57,22 @@ const newToken = (bytes = 24) => crypto.randomBytes(bytes).toString('base64url')
 function today() {
   // YYYY-MM-DD حسب المنطقة الزمنية للمدرسة
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
+const SUPPORT = {
+  whatsapp: (process.env.SUPPORT_WHATSAPP || '').replace(/\D/g, ''),
+  email: process.env.SUPPORT_EMAIL || '',
+  name: process.env.PLATFORM_NAME || 'رصد الحضور',
+};
+// request: التسجيل العام يُنشئ طلب اشتراك ينتظر موافقة المالك. closed: المالك وحده يُنشئ المدارس.
+const REGISTRATION_MODE = process.env.REGISTRATION_MODE === 'closed' ? 'closed' : 'request';
+
+function addMonths(date, n) {
+  const [y, m, d] = date.split('-').map(Number);
+  const x = new Date(Date.UTC(y, m - 1 + n, 1));
+  const last = new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth() + 1, 0)).getUTCDate();
+  x.setUTCDate(Math.min(d, last));
+  return x.toISOString().slice(0, 10);
 }
 
 const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -108,29 +125,46 @@ function requireAdmin(req, res, next) {
     if (row) db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
     return res.status(401).json({ error: 'انتهت الجلسة، سجّل الدخول مجدداً' });
   }
+  const school = db.prepare('SELECT status, subscription_end, must_change_password FROM schools WHERE id = ?').get(row.school_id);
+  const access = schoolAccess(school, today());
+  if (!access.ok) return res.status(403).json({ error: access.message, code: access.code, support: SUPPORT });
+  if (school.must_change_password && !['/me', '/password'].includes(req.path)) {
+    return res.status(403).json({ error: 'غيّر كلمة المرور المؤقتة أولاً', code: 'must_change_password' });
+  }
   req.schoolId = row.school_id;
   next();
 }
 
-app.post('/api/register', authLimiter, wrap(async (req, res) => {
-  const schoolName = str(req.body.schoolName, 150);
-  const adminName = str(req.body.adminName, 100);
-  const email = str(req.body.email, 150).toLowerCase();
-  const password = typeof req.body.password === 'string' ? req.body.password : '';
+/** إنشاء مدرسة (من طلب الاشتراك العام أو من لوحة المالك) */
+async function newSchool({ schoolName, adminName, email, password, contactPhone, status, mustChange }) {
   if (!schoolName || !adminName) throw new HttpError(400, 'اسم المدرسة واسم المدير مطلوبان');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpError(400, 'البريد الإلكتروني غير صحيح');
   if (password.length < 8) throw new HttpError(400, 'كلمة المرور يجب أن تكون 8 أحرف على الأقل');
   if (db.prepare('SELECT 1 FROM schools WHERE email = ?').get(email)) throw new HttpError(409, 'هذا البريد مسجّل مسبقاً');
-
   const hash = await bcrypt.hash(password, 11);
   const cc = String(process.env.DEFAULT_COUNTRY_CODE || '966').replace(/\D/g, '').slice(0, 4) || '966';
-  const info = db.prepare('INSERT INTO schools (name, admin_name, email, password_hash, teacher_token, country_code) VALUES (?,?,?,?,?,?)')
-    .run(schoolName, adminName, email, hash, newToken(18), cc);
+  const info = db.prepare(`INSERT INTO schools (name, admin_name, email, password_hash, teacher_token, country_code, contact_phone, status, must_change_password, approved_at)
+    VALUES (?,?,?,?,?,?,?,?,?, CASE WHEN ? = 'active' THEN datetime('now') END)`)
+    .run(schoolName, adminName, email, hash, newToken(18), cc, contactPhone || null, status, mustChange ? 1 : 0, status);
   // حصص افتراضية: 7 حصص
   const ins = db.prepare('INSERT INTO periods (school_id, number) VALUES (?, ?)');
   for (let i = 1; i <= 7; i++) ins.run(info.lastInsertRowid, i);
-  setSession(res, info.lastInsertRowid);
-  res.json({ ok: true });
+  return info.lastInsertRowid;
+}
+
+app.get('/api/public/info', (req, res) => res.json({ registration: REGISTRATION_MODE, support: SUPPORT }));
+
+app.post('/api/register', authLimiter, wrap(async (req, res) => {
+  if (REGISTRATION_MODE === 'closed') throw new HttpError(403, 'التسجيل يتم عن طريق إدارة المنصة. تواصل معنا.');
+  await newSchool({
+    schoolName: str(req.body.schoolName, 150),
+    adminName: str(req.body.adminName, 100),
+    email: str(req.body.email, 150).toLowerCase(),
+    password: typeof req.body.password === 'string' ? req.body.password : '',
+    contactPhone: str(req.body.contactPhone, 30),
+    status: 'pending',
+  });
+  res.json({ ok: true, pending: true, support: SUPPORT });
 }));
 
 app.post('/api/login', authLimiter, wrap(async (req, res) => {
@@ -139,6 +173,8 @@ app.post('/api/login', authLimiter, wrap(async (req, res) => {
   const school = db.prepare('SELECT id, password_hash FROM schools WHERE email = ?').get(email);
   const ok = school && (await bcrypt.compare(password, school.password_hash));
   if (!ok) throw new HttpError(401, 'البريد أو كلمة المرور غير صحيحة');
+  const access = schoolAccess(db.prepare('SELECT status, subscription_end FROM schools WHERE id = ?').get(school.id), today());
+  if (!access.ok) return res.status(403).json({ error: access.message, code: access.code, support: SUPPORT });
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
   setSession(res, school.id);
   res.json({ ok: true });
@@ -156,13 +192,15 @@ const admin = express.Router();
 admin.use(requireAdmin);
 
 admin.get('/me', (req, res) => {
-  const s = db.prepare('SELECT id, name, admin_name, email, teacher_token, country_code, created_at FROM schools WHERE id = ?').get(req.schoolId);
+  const s = db.prepare('SELECT id, name, admin_name, email, teacher_token, country_code, created_at, plan, subscription_end, must_change_password FROM schools WHERE id = ?').get(req.schoolId);
   const counts = db.prepare(`SELECT
       (SELECT COUNT(*) FROM students WHERE school_id = @id AND status = 'active') AS students,
       (SELECT COUNT(*) FROM teachers WHERE school_id = @id) AS teachers,
       (SELECT COUNT(*) FROM sections WHERE school_id = @id) AS sections,
       (SELECT COUNT(*) FROM periods  WHERE school_id = @id) AS periods`).get({ id: req.schoolId });
-  res.json({ school: s, counts, today: today() });
+  const t = today();
+  const daysLeft = s.subscription_end ? Math.round((new Date(s.subscription_end) - new Date(t)) / 864e5) : null;
+  res.json({ school: s, counts, today: t, subscription: { plan: s.plan, end: s.subscription_end, days_left: daysLeft }, support: SUPPORT });
 });
 
 admin.put('/settings', (req, res) => {
@@ -179,7 +217,7 @@ admin.put('/password', wrap(async (req, res) => {
   const s = db.prepare('SELECT password_hash FROM schools WHERE id = ?').get(req.schoolId);
   if (typeof current !== 'string' || !(await bcrypt.compare(current, s.password_hash))) throw new HttpError(400, 'كلمة المرور الحالية غير صحيحة');
   if (typeof next !== 'string' || next.length < 8) throw new HttpError(400, 'كلمة المرور الجديدة 8 أحرف على الأقل');
-  db.prepare('UPDATE schools SET password_hash = ? WHERE id = ?').run(await bcrypt.hash(next, 11), req.schoolId);
+  db.prepare('UPDATE schools SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(await bcrypt.hash(next, 11), req.schoolId);
   db.prepare('DELETE FROM sessions WHERE school_id = ? AND token != ?').run(req.schoolId, req.cookies.sid);
   res.json({ ok: true });
 }));
@@ -639,6 +677,9 @@ admin.get('/templates/:kind.xlsx', wrap(async (req, res) => {
 
 app.use('/api/admin', admin);
 
+/* ---------------- لوحة مالك المنصة ---------------- */
+app.use('/api/owner', ownerRouter({ today, str, HttpError, wrap, newToken, cookieSecure: COOKIE_SECURE, newSchool, addMonths }));
+
 /* ---------------- واجهة المعلمين (برابط المدرسة فقط، بدون تسجيل دخول) ---------------- */
 
 // معلمو المدرسة غالباً يتشاركون نفس عنوان IP (شبكة المدرسة)، لذا الحد سخي ومرتبط بالرابط + العنوان
@@ -655,9 +696,11 @@ teacher.use(teacherLimiter);
 teacher.use((req, res, next) => {
   const token = req.params.token;
   const school = typeof token === 'string' && token.length >= 16
-    ? db.prepare('SELECT id, name FROM schools WHERE teacher_token = ?').get(token)
+    ? db.prepare('SELECT id, name, status, subscription_end FROM schools WHERE teacher_token = ?').get(token)
     : null;
   if (!school) return res.status(404).json({ error: 'الرابط غير صحيح أو تم تغييره. اطلب الرابط الجديد من إدارة المدرسة.' });
+  const access = schoolAccess(school, today());
+  if (!access.ok) return res.status(403).json({ error: access.code === 'pending' ? 'حساب المدرسة لم يُفعّل بعد.' : 'الرصد متوقف حالياً لهذه المدرسة. راجع إدارة المدرسة.', code: access.code });
   req.schoolId = school.id;
   req.schoolName = school.name;
   next();
@@ -759,6 +802,7 @@ const pub = path.join(__dirname, '..', 'public');
 app.use(express.static(pub, { index: false, extensions: ['html'], maxAge: '1h' }));
 app.get('/', (req, res) => res.sendFile(path.join(pub, 'index.html')));
 app.get('/admin', (req, res) => res.sendFile(path.join(pub, 'admin.html')));
+app.get('/owner', (req, res) => res.sendFile(path.join(pub, 'owner.html')));
 app.get('/report', (req, res) => res.sendFile(path.join(pub, 'report.html')));
 app.get('/student-report', (req, res) => res.sendFile(path.join(pub, 'student-report.html')));
 app.get('/t/:token', (req, res) => res.sendFile(path.join(pub, 'teacher.html')));

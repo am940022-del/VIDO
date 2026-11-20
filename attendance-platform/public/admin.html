@@ -30,6 +30,25 @@
   <main class="container" style="padding-bottom:64px">
 
     <!-- تنبيه البدء -->
+    <div id="sub-banner" class="alert hidden" role="status" style="margin-top:16px"></div>
+
+    <section id="blocked" class="card hidden" style="margin:48px auto;max-width:560px;text-align:center">
+      <h2 class="card-title">لا يمكن الوصول إلى لوحة المدرسة</h2>
+      <p id="blocked-msg" class="muted" style="margin:16px 0 24px"></p>
+      <div id="blocked-support" class="row" style="justify-content:center"></div>
+    </section>
+
+    <dialog id="pw-dialog" class="dialog" aria-labelledby="pw-title">
+      <form id="pw-form">
+        <h2 id="pw-title">غيّر كلمة المرور المؤقتة</h2>
+        <p class="muted small" style="margin-top:8px">حسابك أُنشئ بكلمة مرور مؤقتة من إدارة المنصة. اختر كلمة مرور خاصة بك للمتابعة.</p>
+        <div class="field" style="margin-top:16px"><label for="pw-cur">كلمة المرور المؤقتة</label><input id="pw-cur" name="current" type="password" autocomplete="current-password" required></div>
+        <div class="field"><label for="pw-new">كلمة المرور الجديدة (8 أحرف على الأقل)</label><input id="pw-new" name="next" type="password" autocomplete="new-password" minlength="8" required></div>
+        <div id="pw-error" class="alert alert-error hidden" role="alert" style="margin-top:16px"></div>
+        <button class="btn btn-primary" style="margin-top:24px" type="submit">حفظ والمتابعة</button>
+      </form>
+    </dialog>
+
     <section id="setup-hint" class="card hidden" style="margin:16px 0 24px">
       <h3 class="card-title">ابدأ بإعداد مدرستك</h3>
       <ol class="muted" style="margin:0;padding-inline-start:24px">
@@ -261,6 +280,10 @@
 
     <!-- ===== الإعدادات ===== -->
     <section data-panel="settings" class="stack-lg hidden" style="margin-top:16px">
+      <div class="card">
+        <h3 class="card-title">الاشتراك</h3>
+        <p class="card-sub" id="sub-info"></p>
+      </div>
       <div class="card">
         <h3 class="card-title">رابط المعلمين</h3>
         <p class="card-sub">هذا الرابط خاص بمدرستك فقط. إذا تسرّب لأشخاص غير مخولين، أنشئ رابطاً جديداً وسيتوقف الرابط القديم فوراً.</p>

@@ -100,11 +100,11 @@ async function init() {
     applyInfo(fresh);
     if (!cached) { show('grades', false); history.replaceState({ view: 'grades' }, ''); }
   } catch (e) {
-    if (e.status === 404) {
+    if (e.status === 404 || e.status === 403) {
       try { localStorage.removeItem(K.info); } catch { /* لا شيء */ }
       $$('main > section').forEach((s) => s.classList.add('hidden'));
     }
-    if (e.status === 404 || !cached) fail(e.message);
+    if (e.status === 404 || e.status === 403 || !cached) fail(e.message);
   }
   flush();
 }
@@ -268,7 +268,7 @@ function flush() {
       setQueue(getQueue().filter((x) => !sent.has(JSON.stringify(x))));
       setSaveState(getQueue().length ? 'pending' : 'saved');
     } catch (e) {
-      if (e.status === 404) { setQueue([]); fail(e.message); return; }
+      if (e.status === 404 || e.status === 403) { fail(e.message); setSaveState('offline'); return; }
       setSaveState('offline');
       flushTimer = setTimeout(flush, 5000);
     } finally {

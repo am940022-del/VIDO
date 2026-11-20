@@ -29,19 +29,26 @@
           <div id="login-error" class="alert alert-error hidden" role="alert" style="margin-top:16px"></div>
           <button class="btn btn-primary btn-block" style="margin-top:24px" type="submit">دخول</button>
         </form>
+        <div class="support hidden" style="margin-top:16px"></div>
       </section>
 
-      <section class="card" aria-labelledby="reg-title">
-        <h2 id="reg-title" class="card-title">تسجيل مدرسة جديدة</h2>
-        <p class="card-sub">حساب واحد لكل مدرسة، وبيانات كل مدرسة منفصلة ومحمية.</p>
+      <section class="card" aria-labelledby="reg-title" id="reg-card">
+        <h2 id="reg-title" class="card-title">طلب اشتراك لمدرستك</h2>
+        <p class="card-sub">أرسل بيانات المدرسة، وتراجعها إدارة المنصة وتفعّل الحساب. بيانات كل مدرسة منفصلة ومحمية.</p>
         <form id="reg-form" novalidate>
           <div class="field"><label for="r-school">اسم المدرسة</label><input id="r-school" name="schoolName" required maxlength="150"></div>
           <div class="field"><label for="r-admin">اسم المدير</label><input id="r-admin" name="adminName" required maxlength="100"></div>
-          <div class="field"><label for="r-email">البريد الإلكتروني</label><input id="r-email" name="email" type="email" autocomplete="email" required></div>
+          <div class="field"><label for="r-phone">رقم الجوال للتواصل</label><input id="r-phone" name="contactPhone" type="tel" dir="ltr" maxlength="30" required></div>
+          <div class="field"><label for="r-email">البريد الإلكتروني (للدخول)</label><input id="r-email" name="email" type="email" autocomplete="email" required></div>
           <div class="field"><label for="r-pass">كلمة المرور (8 أحرف على الأقل)</label><input id="r-pass" name="password" type="password" autocomplete="new-password" minlength="8" required></div>
           <div id="reg-error" class="alert alert-error hidden" role="alert" style="margin-top:16px"></div>
-          <button class="btn btn-block" style="margin-top:24px" type="submit">إنشاء حساب المدرسة</button>
+          <button class="btn btn-block" style="margin-top:24px" type="submit">إرسال طلب الاشتراك</button>
         </form>
+        <div id="reg-done" class="hidden" role="status">
+          <p class="alert alert-ok">تم استلام طلبك ✓ سنراجع البيانات ونفعّل حساب المدرسة، ثم تستطيع الدخول بنفس البريد وكلمة المرور.</p>
+        </div>
+        <div id="reg-closed" class="hidden"><p class="muted">التسجيل يتم عن طريق إدارة المنصة.</p></div>
+        <div class="support hidden" style="margin-top:16px"></div>
       </section>
     </div>
 

@@ -35,6 +35,15 @@ function client() {
   };
 }
 
+/** تسجيل مدرسة ثم تفعيلها (كما يفعل مالك المنصة) ثم الدخول */
+async function register(c, body) {
+  const r = await c('POST', '/api/register', body);
+  if (r.status !== 200) return r;
+  require('../src/db').prepare("UPDATE schools SET status = 'active' WHERE email = ?").run(body.email.toLowerCase());
+  await c('POST', '/api/login', { email: body.email, password: body.password });
+  return r;
+}
+
 async function studentsXlsx(rows) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('s');
@@ -50,9 +59,9 @@ test('دورة كاملة: تسجيل، رفع، رصد، إحصاء، تصدي�
   const a = client();
   const b = client();
 
-  assert.equal((await a('POST', '/api/register', { schoolName: 'مدرسة أ', adminName: 'مدير أ', email: 'a@x.com', password: 'password1' })).status, 200);
-  assert.equal((await b('POST', '/api/register', { schoolName: 'مدرسة ب', adminName: 'مدير ب', email: 'b@x.com', password: 'password2' })).status, 200);
-  assert.equal((await b('POST', '/api/register', { schoolName: 'x', adminName: 'y', email: 'A@x.com', password: 'password3' })).status, 409);
+  assert.equal((await register(a, { schoolName: 'مدرسة أ', adminName: 'مدير أ', email: 'a@x.com', password: 'password1' })).status, 200);
+  assert.equal((await register(b, { schoolName: 'مدرسة ب', adminName: 'مدير ب', email: 'b@x.com', password: 'password2' })).status, 200);
+  assert.equal((await register(b, { schoolName: 'x', adminName: 'y', email: 'A@x.com', password: 'password3' })).status, 409);
 
   // رفع الطلاب
   const up = await a('POST', '/api/admin/students/upload', await studentsXlsx([
@@ -153,7 +162,7 @@ test('دورة كاملة: تسجيل، رفع، رصد، إحصاء، تصدي�
 
 test('الصفوف الرقمية: توحيد الأرقام، الترتيب الطبيعي، وعمود «11/1»', async () => {
   const a = client();
-  await a('POST', '/api/register', { schoolName: 'ج', adminName: 'م', email: 'c@x.com', password: 'password1' });
+  await register(a, { schoolName: 'ج', adminName: 'م', email: 'c@x.com', password: 'password1' });
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('s');
   ws.addRow(['الاسم', 'الصف', 'الشعبة']);
@@ -176,7 +185,7 @@ test('الصفوف الرقمية: توحيد الأرقام، الترتيب ا
 
 test('إدارة الطلاب: نقل، انقطاع، انتقال، مزامنة القائمة، ودمج الشعب', async () => {
   const a = client();
-  await a('POST', '/api/register', { schoolName: 'د', adminName: 'م', email: 'd@x.com', password: 'password1' });
+  await register(a, { schoolName: 'د', adminName: 'م', email: 'd@x.com', password: 'password1' });
   const csv = (text) => { const fd = new FormData(); fd.append('file', new Blob([text]), 's.csv'); return fd; };
   const up = (text, extra = {}) => { const fd = csv(text); for (const [k, v] of Object.entries(extra)) fd.append(k, v); return a('POST', '/api/admin/students/upload', fd, true); };
 
@@ -234,4 +243,73 @@ test('إدارة الطلاب: نقل، انقطاع، انتقال، مزامن
   const m = await a('PATCH', `/api/admin/sections/${s111.id}`, { grade: '11', section: '2' });
   assert.equal(m.data.merged, true);
   assert.equal((await a('GET', '/api/admin/sections')).data.filter((s) => s.grade === '11').length, 1);
+});
+
+test('النموذج التجاري: طلب اشتراك، تفعيل المالك، الإيقاف، انتهاء الاشتراك، وكلمة المرور المؤقتة', async () => {
+  const { createOwner } = require('../src/owner');
+  const school = client();
+  const owner = client();
+  const t = client();
+
+  // طلب اشتراك: لا دخول قبل التفعيل
+  const reg = await school('POST', '/api/register', { schoolName: 'هـ', adminName: 'م', email: 'h@x.com', password: 'password1', contactPhone: '91234567' });
+  assert.equal(reg.data.pending, true);
+  const denied = await school('POST', '/api/login', { email: 'h@x.com', password: 'password1' });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.data.code, 'pending');
+
+  // المالك: كلمة مؤقتة يجب تغييرها أولاً
+  const pass = createOwner('owner@x.com', 'المالك');
+  assert.equal((await owner('POST', '/api/owner/login', { email: 'owner@x.com', password: pass })).data.must_change_password, true);
+  assert.equal((await owner('GET', '/api/owner/schools')).status, 403);
+  assert.equal((await owner('PUT', '/api/owner/password', { current: pass, next: 'short' })).status, 400);
+  assert.equal((await owner('PUT', '/api/owner/password', { current: pass, next: 'a-strong-pass-123' })).status, 200);
+  assert.equal((await client()('GET', '/api/owner/schools')).status, 401);
+  // مدير مدرسة لا يصل للوحة المالك
+  assert.equal((await school('GET', '/api/owner/schools')).status, 401);
+
+  const list = (await owner('GET', '/api/owner/schools')).data;
+  const sc = list.schools.find((x) => x.email === 'h@x.com');
+  assert.equal(sc.status, 'pending');
+  assert.ok(list.summary.pending >= 1);
+
+  // تفعيل لمدة سنة
+  await owner('PATCH', `/api/owner/schools/${sc.id}`, { status: 'active', extend_months: 12 });
+  assert.equal((await school('POST', '/api/login', { email: 'h@x.com', password: 'password1' })).status, 200);
+  const me = (await school('GET', '/api/admin/me')).data;
+  assert.ok(me.subscription.days_left >= 360);
+  const token = me.school.teacher_token;
+  assert.equal((await t('GET', `/api/t/${token}/info`)).status, 200);
+
+  // إيقاف: المدير والمعلمون يُمنعون
+  await owner('PATCH', `/api/owner/schools/${sc.id}`, { status: 'suspended' });
+  assert.equal((await school('GET', '/api/admin/me')).status, 403);
+  assert.equal((await t('GET', `/api/t/${token}/info`)).status, 403);
+
+  // انتهاء الاشتراك
+  await owner('PATCH', `/api/owner/schools/${sc.id}`, { status: 'active', subscription_end: '2020-01-01' });
+  const exp = await school('GET', '/api/admin/me');
+  assert.equal(exp.status, 403);
+  assert.equal(exp.data.code, 'expired');
+  // التمديد من اليوم عند الانتهاء
+  await owner('PATCH', `/api/owner/schools/${sc.id}`, { extend_months: 1 });
+  assert.equal((await school('GET', '/api/admin/me')).status, 200);
+
+  // المالك ينشئ مدرسة بكلمة مؤقتة: المدير يجب أن يغيّرها
+  const created = (await owner('POST', '/api/owner/schools', { name: 'و', admin_name: 'م', email: 'w@x.com', contact_phone: '9', plan: 'سنوية', extend_months: 12 })).data;
+  const w = client();
+  assert.equal((await w('POST', '/api/login', { email: 'w@x.com', password: created.temp_password })).status, 200);
+  assert.equal((await w('GET', '/api/admin/me')).data.school.must_change_password, 1);
+  assert.equal((await w('GET', '/api/admin/students')).status, 403);
+  await w('PUT', '/api/admin/password', { current: created.temp_password, next: 'newpass123' });
+  assert.equal((await w('GET', '/api/admin/students')).status, 200);
+
+  // إعادة تعيين كلمة المرور تُنهي الجلسات
+  const rs = (await owner('POST', `/api/owner/schools/${created.id}/reset-password`)).data;
+  assert.equal((await w('GET', '/api/admin/me')).status, 401);
+  assert.ok(rs.temp_password.length >= 10);
+
+  // الحذف يتطلب الاسم
+  assert.equal((await owner('DELETE', `/api/owner/schools/${created.id}`, { confirm_name: 'خطأ' })).status, 400);
+  assert.equal((await owner('DELETE', `/api/owner/schools/${created.id}`, { confirm_name: 'و' })).status, 200);
 });

@@ -67,6 +67,13 @@ if [ ! -f "$ENV_FILE" ]; then
 else
   echo "Keeping the existing settings."
 fi
+# Settings added by later versions (asked once).
+if ! grep -q '^SUPPORT_WHATSAPP=' "$ENV_FILE"; then
+  read -rp "Your WhatsApp number for schools to contact you (e.g. 96890000000), or Enter to skip: " SW
+  setenv SUPPORT_WHATSAPP "$SW"
+fi
+grep -q '^SUPPORT_EMAIL=' "$ENV_FILE" || setenv SUPPORT_EMAIL ""
+grep -q '^REGISTRATION_MODE=' "$ENV_FILE" || setenv REGISTRATION_MODE request
 case "$MODE" in
   shared)       setenv COMPOSE_FILE docker-compose.shared.yml ;;
   behind-proxy) setenv COMPOSE_FILE docker-compose.app-only.yml ;;
@@ -86,6 +93,15 @@ for _ in $(seq 1 40); do
 done
 docker compose exec -T app node -e "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
   || die "The app did not become healthy. See: docker compose logs app"
+
+# Platform owner account (you): approves schools and manages subscriptions at /owner.
+if [ "$(docker compose exec -T app node src/cli.js owner:count 2>/dev/null | tr -d '[:space:]')" = "0" ]; then
+  say "Platform owner account"
+  read -rp "Your email (platform owner): " OWNER_EMAIL
+  read -rp "Your name: " OWNER_NAME
+  docker compose exec -T app node src/cli.js owner:create "$OWNER_EMAIL" "${OWNER_NAME:-Owner}" || echo "Create it later: docker compose exec app node src/cli.js owner:create you@example.com"
+  echo "Log in at https://$DOMAIN/owner with the temporary password above, then change it."
+fi
 
 say "4/5 HTTPS"
 if [ "$MODE" = "shared" ]; then
@@ -149,11 +165,13 @@ fi
 
 say "5/5 Done"
 cat <<MSG
-  Open:        https://$DOMAIN   (register the first school on the home page)
+  Schools:     https://$DOMAIN          (schools send a subscription request here)
+  Owner:       https://$DOMAIN/owner    (approve schools, manage subscriptions)
   Health:      https://$DOMAIN/healthz
   Logs:        cd $APP_DIR && docker compose logs -f app
   Update:      cd $APP_DIR && sudo bash deploy/update.sh
   Backup now:  cd $APP_DIR && docker compose exec app node src/backup.js
+  Owner reset: cd $APP_DIR && docker compose exec app node src/cli.js owner:create you@example.com
 MSG
 [ "$NEW_INSTALL" = "1" ] && echo "  Make sure the DNS A record of $DOMAIN points to this server."
 exit 0

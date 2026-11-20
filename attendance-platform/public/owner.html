@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>لوحة مالك المنصة</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="container">
+      <span class="brand"><span class="brand-mark" aria-hidden="true">✓</span><span>إدارة المنصة</span></span>
+      <span class="grow"></span>
+      <span class="muted small" id="who"></span>
+      <button class="btn btn-ghost btn-sm hidden" id="logout" type="button">خروج</button>
+    </div>
+  </header>
+
+  <main class="container" style="padding-bottom:64px">
+    <!-- الدخول -->
+    <section id="v-login" class="card narrow hidden" style="margin:48px auto">
+      <h2 class="card-title">دخول مالك المنصة</h2>
+      <form id="login-form">
+        <div class="field"><label for="l-email">البريد الإلكتروني</label><input id="l-email" name="email" type="email" autocomplete="username" required></div>
+        <div class="field"><label for="l-pass">كلمة المرور</label><input id="l-pass" name="password" type="password" autocomplete="current-password" required></div>
+        <div id="login-error" class="alert alert-error hidden" role="alert" style="margin-top:16px"></div>
+        <button class="btn btn-primary btn-block" style="margin-top:24px" type="submit">دخول</button>
+      </form>
+    </section>
+
+    <!-- تغيير كلمة المرور المؤقتة -->
+    <section id="v-password" class="card narrow hidden" style="margin:48px auto">
+      <h2 class="card-title">غيّر كلمة المرور المؤقتة</h2>
+      <p class="card-sub">اختر كلمة مرور قوية (10 أحرف على الأقل). هذا الحساب يتحكم في كل المدارس.</p>
+      <form id="pw-form">
+        <div class="field"><label for="pw-cur">كلمة المرور الحالية</label><input id="pw-cur" name="current" type="password" autocomplete="current-password" required></div>
+        <div class="field"><label for="pw-new">كلمة المرور الجديدة</label><input id="pw-new" name="next" type="password" autocomplete="new-password" minlength="10" required></div>
+        <div id="pw-error" class="alert alert-error hidden" role="alert" style="margin-top:16px"></div>
+        <button class="btn btn-primary btn-block" style="margin-top:24px" type="submit">حفظ</button>
+      </form>
+    </section>
+
+    <!-- اللوحة -->
+    <section id="v-dash" class="stack-lg hidden" style="margin-top:24px">
+      <div class="row between">
+        <h1>المدارس</h1>
+        <button class="btn btn-primary" id="new-school" type="button">+ إضافة مدرسة</button>
+      </div>
+      <div class="grid grid-4" id="tiles"></div>
+      <div class="row between">
+        <div class="tabs" role="tablist" id="filters">
+          <button class="tab" role="tab" data-f="all" aria-selected="true">الكل</button>
+          <button class="tab" role="tab" data-f="pending">طلبات جديدة</button>
+          <button class="tab" role="tab" data-f="ok">فعّالة</button>
+          <button class="tab" role="tab" data-f="expiring">تنتهي قريباً</button>
+          <button class="tab" role="tab" data-f="expired">منتهية</button>
+          <button class="tab" role="tab" data-f="suspended">موقوفة</button>
+        </div>
+        <input id="q" type="search" placeholder="بحث باسم المدرسة أو البريد" style="width:260px" aria-label="بحث">
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>المدرسة</th><th>الحالة</th><th>الباقة</th><th>نهاية الاشتراك</th><th>الطلاب</th><th>المعلمون</th><th>رصد آخر 30 يوماً</th><th>آخر نشاط</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+      <details class="card">
+        <summary style="cursor:pointer;font-weight:500">تغيير كلمة مرور المالك</summary>
+        <form id="pw-form-2" class="inline-fields" style="margin-top:16px">
+          <div class="field"><label for="pw2-cur">الحالية</label><input id="pw2-cur" name="current" type="password" autocomplete="current-password" required></div>
+          <div class="field"><label for="pw2-new">الجديدة (10 أحرف على الأقل)</label><input id="pw2-new" name="next" type="password" autocomplete="new-password" minlength="10" required></div>
+          <button class="btn" type="submit">تغيير</button>
+        </form>
+      </details>
+    </section>
+  </main>
+
+  <!-- إدارة مدرسة -->
+  <dialog id="sd" class="dialog" aria-labelledby="sd-title">
+    <form method="dialog" id="sd-form">
+      <div class="row between"><h2 id="sd-title"></h2><button class="btn btn-ghost btn-sm" value="cancel" type="submit" aria-label="إغلاق">✕</button></div>
+      <p class="muted small" id="sd-meta" style="margin-top:4px"></p>
+      <div class="inline-fields" style="margin-top:16px">
+        <div class="field"><label for="sd-status">الحالة</label>
+          <select id="sd-status" name="status">
+            <option value="pending">طلب جديد (بانتظار التفعيل)</option>
+            <option value="active">مفعّلة</option>
+            <option value="suspended">موقوفة</option>
+          </select>
+        </div>
+        <div class="field"><label for="sd-plan">الباقة</label><input id="sd-plan" name="plan" list="plans" placeholder="مثال: سنوية"></div>
+      </div>
+      <div class="inline-fields" style="margin-top:16px">
+        <div class="field"><label for="sd-end">نهاية الاشتراك (فارغ = مفتوح)</label><input id="sd-end" name="subscription_end" type="date"></div>
+        <div class="field" style="flex:2 1 240px"><label>تمديد سريع</label>
+          <div class="row">
+            <button class="btn btn-sm" type="button" data-ext="1">+ شهر</button>
+            <button class="btn btn-sm" type="button" data-ext="3">+ 3 أشهر</button>
+            <button class="btn btn-sm" type="button" data-ext="12">+ سنة</button>
+          </div>
+        </div>
+      </div>
+      <div class="field" style="margin-top:16px"><label for="sd-phone">جوال التواصل</label><input id="sd-phone" name="contact_phone" dir="ltr"></div>
+      <div class="field"><label for="sd-notes">ملاحظات داخلية</label><input id="sd-notes" name="owner_notes" maxlength="1000" placeholder="مثال: دفع نقداً، فاتورة رقم..."></div>
+      <div class="row" style="margin-top:24px">
+        <button class="btn btn-primary" value="save" type="submit">حفظ</button>
+        <button class="btn" id="sd-reset" type="button">كلمة مرور مؤقتة جديدة للمدير</button>
+        <span class="grow"></span>
+        <button class="btn btn-ghost btn-danger" id="sd-delete" type="button">حذف المدرسة</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- إضافة مدرسة -->
+  <dialog id="nd" class="dialog" aria-labelledby="nd-title">
+    <form method="dialog" id="nd-form">
+      <div class="row between"><h2 id="nd-title">إضافة مدرسة</h2><button class="btn btn-ghost btn-sm" value="cancel" type="submit" formnovalidate aria-label="إغلاق">✕</button></div>
+      <p class="muted small" style="margin-top:4px">تُنشأ المدرسة مفعّلة بكلمة مرور مؤقتة يغيّرها المدير عند أول دخول.</p>
+      <div class="field" style="margin-top:16px"><label for="nd-name">اسم المدرسة</label><input id="nd-name" name="name" required></div>
+      <div class="inline-fields" style="margin-top:16px">
+        <div class="field"><label for="nd-admin">اسم المدير</label><input id="nd-admin" name="admin_name" required></div>
+        <div class="field"><label for="nd-phone">جوال المدير</label><input id="nd-phone" name="contact_phone" dir="ltr"></div>
+      </div>
+      <div class="field" style="margin-top:16px"><label for="nd-email">بريد المدير (للدخول)</label><input id="nd-email" name="email" type="email" required></div>
+      <div class="inline-fields" style="margin-top:16px">
+        <div class="field"><label for="nd-plan">الباقة</label><input id="nd-plan" name="plan" list="plans"></div>
+        <div class="field"><label for="nd-months">مدة الاشتراك</label>
+          <select id="nd-months" name="extend_months"><option value="1">شهر</option><option value="3">3 أشهر</option><option value="12" selected>سنة</option><option value="">مفتوح</option></select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:24px"><button class="btn btn-primary" value="create" type="submit">إنشاء</button></div>
+    </form>
+  </dialog>
+
+  <!-- بيانات الدخول بعد الإنشاء أو إعادة التعيين -->
+  <dialog id="cred" class="dialog" aria-labelledby="cred-title">
+    <h2 id="cred-title">بيانات دخول المدير</h2>
+    <p class="muted small" style="margin-top:4px">تظهر كلمة المرور المؤقتة مرة واحدة فقط. أرسلها للمدير الآن.</p>
+    <pre id="cred-text" class="link-box" style="white-space:pre-wrap;margin-top:16px;font-family:inherit"></pre>
+    <div class="row" style="margin-top:16px">
+      <button class="btn btn-primary" id="cred-copy" type="button">نسخ</button>
+      <a class="btn" id="cred-wa" target="_blank" rel="noopener">إرسال عبر واتساب</a>
+      <span class="grow"></span>
+      <button class="btn btn-ghost" id="cred-close" type="button">إغلاق</button>
+    </div>
+  </dialog>
+
+  <datalist id="plans"><option value="تجريبية"><option value="شهرية"><option value="فصلية"><option value="سنوية"></datalist>
+
+  <script src="/common.js"></script>
+  <script src="/owner.js"></script>
+</body>
+</html>

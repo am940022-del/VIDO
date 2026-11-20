@@ -20,6 +20,8 @@ async function api(url, opts = {}) {
   if (!res.ok) {
     const err = new Error((data && data.error) || 'تعذر الاتصال بالخادم');
     err.status = res.status;
+    err.code = data && data.code;
+    err.data = data;
     throw err;
   }
   return data;

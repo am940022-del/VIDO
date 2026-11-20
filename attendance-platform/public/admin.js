@@ -38,6 +38,54 @@ async function loadMe() {
   $('#ss-name').value = me.school.name;
   $('#ss-admin').value = me.school.admin_name;
   $('#ss-cc').value = me.school.country_code || '966';
+  renderSubscription();
+}
+
+/* ---------- الاشتراك ---------- */
+function supportButtons(sp) {
+  if (!sp) return '';
+  return (sp.whatsapp ? `<a class="btn btn-primary" href="https://wa.me/${esc(sp.whatsapp)}" target="_blank" rel="noopener">تواصل عبر واتساب</a>` : '') +
+    (sp.email ? `<a class="btn" href="mailto:${esc(sp.email)}">${esc(sp.email)}</a>` : '');
+}
+function renderSubscription() {
+  const sub = me.subscription || {};
+  const info = [sub.plan ? `الباقة: ${esc(sub.plan)}` : '', sub.end ? `ينتهي الاشتراك في <bdi>${esc(sub.end)}</bdi>` : 'اشتراك مفتوح بدون تاريخ انتهاء']
+    .filter(Boolean).join(' · ');
+  $('#sub-info').innerHTML = info;
+  const b = $('#sub-banner');
+  if (sub.days_left !== null && sub.days_left !== undefined && sub.days_left <= 14) {
+    b.className = 'alert alert-error';
+    b.innerHTML = `${sub.days_left <= 0 ? 'ينتهي اشتراك المدرسة اليوم' : `يتبقى ${sub.days_left} يوماً على انتهاء اشتراك المدرسة`} (<bdi>${esc(sub.end)}</bdi>). تواصل مع إدارة المنصة للتجديد حتى لا يتوقف الرصد. ${supportButtons(me.support)}`;
+  } else {
+    b.className = 'alert hidden';
+  }
+}
+
+function showBlocked(e) {
+  $$('[data-panel], nav, #setup-hint, #sub-banner').forEach((el) => el.classList.add('hidden'));
+  $('#blocked-msg').textContent = e.message;
+  $('#blocked-support').innerHTML = supportButtons(e.data && e.data.support);
+  $('#blocked').classList.remove('hidden');
+}
+
+function forcePasswordChange() {
+  return new Promise((resolve) => {
+    const dlg = $('#pw-dialog');
+    dlg.addEventListener('cancel', (ev) => ev.preventDefault()); // لا يُغلق قبل التغيير
+    $('#pw-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      try {
+        await api(`${A}/password`, { method: 'PUT', body: Object.fromEntries(new FormData(ev.target)) });
+        dlg.close();
+        toast('تم تغيير كلمة المرور');
+        resolve();
+      } catch (ex) {
+        $('#pw-error').textContent = ex.message;
+        $('#pw-error').classList.remove('hidden');
+      }
+    });
+    dlg.showModal();
+  });
 }
 
 async function loadSections() {
@@ -526,8 +574,10 @@ $('#set-pass').addEventListener('submit', async (e) => {
     await loadMe();
   } catch (e) {
     if (e.status === 401) return location.replace('/');
+    if (e.status === 403) return showBlocked(e);
     return toast(e.message);
   }
+  if (me.school.must_change_password) await forcePasswordChange();
   const [f, t] = rangeOf('month');
   $('#o-from').value = f; $('#o-to').value = t;
   $('#r-from').value = me.today; $('#r-to').value = me.today;
