@@ -122,19 +122,27 @@
     <!-- ===== الطلاب ===== -->
     <section data-panel="students" class="stack-lg hidden" style="margin-top:16px">
       <div class="card">
-        <h3 class="card-title">رفع قائمة الطلاب</h3>
-        <p class="card-sub">ملف Excel (xlsx) أو CSV يحتوي الأعمدة: <strong>اسم الطالب، الصف، الشعبة</strong> (واختيارياً: رقم الطالب، جوال ولي الأمر). سيتم توزيع الطلاب على الصفوف والشعب تلقائياً. <a href="/api/admin/templates/students.xlsx">تحميل القالب</a></p>
+        <h3 class="card-title">رفع أو تحديث قائمة الطلاب</h3>
+        <p class="card-sub">ملف Excel (xlsx) أو CSV بالأعمدة: <strong>اسم الطالب، الصف، الشعبة</strong> (واختيارياً: رقم الطالب، جوال ولي الأمر). <a href="/api/admin/templates/students.xlsx">تحميل القالب</a></p>
         <form id="s-upload" class="inline-fields">
           <div class="field"><label for="s-file">الملف</label><input id="s-file" name="file" type="file" accept=".xlsx,.csv" required></div>
-          <div class="field"><label for="s-mode">طريقة الرفع</label><select id="s-mode" name="mode"><option value="append">إضافة إلى الموجود</option><option value="replace">استبدال الكل (يحذف الطلاب وسجلاتهم الحالية)</option></select></div>
-          <button class="btn btn-primary" type="submit">رفع</button>
+          <div class="field"><label for="s-mode">طريقة الرفع</label>
+            <select id="s-mode" name="mode">
+              <option value="sync">تحديث القائمة — نقل وإضافة ومعالجة الغائبين عن الملف (موصى به)</option>
+              <option value="append">إضافة فقط</option>
+              <option value="replace">استبدال الكل (يحذف الطلاب وسجلاتهم)</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" type="submit">متابعة</button>
         </form>
+        <div id="s-preview" class="hidden" style="margin-top:24px"></div>
       </div>
 
       <div class="grid grid-2" style="align-items:start">
         <div>
-          <h2 style="margin-bottom:12px">الصفوف والشعب</h2>
-          <div class="table-wrap"><table><thead><tr><th>الصف</th><th>الشعبة</th><th>الطلاب</th><th></th></tr></thead><tbody id="s-sections"></tbody></table></div>
+          <h2 style="margin-bottom:4px">الصفوف والشعب</h2>
+          <p class="muted small" style="margin-bottom:12px">«تعديل» يغيّر اسم الصف أو الشعبة، وإن كتبت اسم شعبة موجودة تُدمج الشعبتان.</p>
+          <div class="table-wrap"><table><thead><tr><th>الصف</th><th>الشعبة</th><th>الطلاب</th><th>غير نشط</th><th></th></tr></thead><tbody id="s-sections"></tbody></table></div>
         </div>
         <div class="card">
           <h3 class="card-title">إضافة طالب</h3>
@@ -158,13 +166,62 @@
         <div class="row between" style="margin-bottom:12px">
           <h2>قائمة الطلاب</h2>
           <div class="row">
-            <select id="s-filter-section" style="width:auto"><option value="">كل الشعب</option></select>
-            <input id="s-q" type="search" placeholder="بحث بالاسم" style="width:200px">
+            <select id="s-status" style="width:auto" aria-label="حالة الطالب">
+              <option value="active">النشطون</option>
+              <option value="withdrawn">المنقطعون</option>
+              <option value="transferred">المنتقلون من المدرسة</option>
+              <option value="all">الكل</option>
+            </select>
+            <select id="s-filter-section" style="width:auto" aria-label="الشعبة"><option value="">كل الشعب</option></select>
+            <input id="s-q" type="search" placeholder="بحث بالاسم" style="width:200px" aria-label="بحث بالاسم">
           </div>
         </div>
-        <div class="table-wrap"><table><thead><tr><th>#</th><th>الاسم</th><th>الصف</th><th>الشعبة</th><th>رقم الطالب</th><th>جوال ولي الأمر</th><th></th></tr></thead><tbody id="s-list"></tbody></table></div>
+        <div id="s-bulk" class="bulk-bar hidden" role="region" aria-label="إجراء على المحددين">
+          <strong id="s-bulk-count"></strong>
+          <select id="s-bulk-section" style="width:auto" aria-label="نقل إلى شعبة"></select>
+          <button class="btn btn-sm btn-primary" data-bulk="move" type="button">نقل</button>
+          <span class="sep-v"></span>
+          <button class="btn btn-sm" data-bulk="withdrawn" type="button">منقطع</button>
+          <button class="btn btn-sm" data-bulk="transferred" type="button">منتقل من المدرسة</button>
+          <button class="btn btn-sm" data-bulk="active" type="button">إعادة تفعيل</button>
+          <button class="btn btn-sm btn-ghost" id="s-bulk-clear" type="button">إلغاء التحديد</button>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th><input type="checkbox" id="s-all" aria-label="تحديد الكل" class="check"></th><th>#</th><th>الاسم</th><th>الصف</th><th>الشعبة</th><th>رقم الطالب</th><th>جوال ولي الأمر</th><th></th></tr></thead><tbody id="s-list"></tbody></table></div>
       </div>
     </section>
+
+    <dialog id="st-dialog" class="dialog" aria-labelledby="st-title">
+      <form method="dialog" id="st-form">
+        <div class="row between"><h2 id="st-title">تعديل بيانات الطالب</h2><button class="btn btn-ghost btn-sm" value="cancel" type="submit" aria-label="إغلاق">✕</button></div>
+        <div class="field" style="margin-top:16px"><label for="st-name">الاسم</label><input id="st-name" name="name" required></div>
+        <div class="inline-fields" style="margin-top:16px">
+          <div class="field"><label for="st-no">رقم الطالب</label><input id="st-no" name="student_no"></div>
+          <div class="field"><label for="st-phone">جوال ولي الأمر</label><input id="st-phone" name="guardian_phone" dir="ltr"></div>
+        </div>
+        <h3 style="margin-top:24px">الشعبة والحالة</h3>
+        <div class="inline-fields" style="margin-top:8px">
+          <div class="field"><label for="st-section">الشعبة</label><select id="st-section" name="section_id"></select></div>
+          <div class="field"><label for="st-status">الحالة</label>
+            <select id="st-status" name="status">
+              <option value="active">نشط</option>
+              <option value="withdrawn">منقطع</option>
+              <option value="transferred">منتقل من المدرسة</option>
+            </select>
+          </div>
+        </div>
+        <div class="inline-fields" style="margin-top:16px">
+          <div class="field"><label for="st-date">تاريخ التغيير</label><input id="st-date" name="date" type="date"></div>
+          <div class="field"><label for="st-note">السبب / ملاحظة</label><input id="st-note" name="note" maxlength="300" placeholder="مثال: نقل بطلب ولي الأمر"></div>
+        </div>
+        <p class="muted small" style="margin-top:8px">السجلات السابقة للطالب تبقى محفوظة. الطالب المنقطع أو المنتقل يختفي من قوائم المعلمين.</p>
+        <h3 style="margin-top:24px">سجل التغييرات</h3>
+        <ul id="st-events" class="events"></ul>
+        <div class="row" style="margin-top:24px">
+          <button class="btn btn-primary" id="st-save" value="save" type="submit">حفظ</button>
+          <button class="btn btn-ghost" value="cancel" type="submit">إلغاء</button>
+        </div>
+      </form>
+    </dialog>
 
     <!-- ===== المعلمون ===== -->
     <section data-panel="teachers" class="stack-lg hidden" style="margin-top:16px">

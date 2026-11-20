@@ -395,3 +395,31 @@ tbody tr:hover { background: color-mix(in srgb, var(--surface-2) 60%, transparen
   #today { white-space: nowrap; font-size: 13px; }
   .hero h1 { font-size: 26px; }
 }
+
+/* ---------- إدارة الطلاب ---------- */
+.bulk-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
+  background: var(--primary-soft); border: 1px solid var(--primary); border-radius: var(--radius-card);
+  padding: var(--space-3) var(--space-4); margin-bottom: var(--space-3);
+  position: sticky; top: 72px; z-index: 15;
+}
+.sep-v { width: 1px; align-self: stretch; background: var(--border); margin: 0 var(--space-1); }
+.check { width: 20px; height: 20px; min-height: 0; padding: 0; accent-color: var(--primary); cursor: pointer; }
+tr.selected { background: var(--primary-soft) !important; }
+tr.inactive td { color: var(--text-2); }
+.badge.withdrawn { background: var(--late-soft); color: var(--late); }
+.badge.transferred { background: var(--surface-2); color: var(--text-2); border: 1px dashed var(--border); }
+.dialog {
+  border: none; border-radius: var(--radius-card); padding: var(--space-5); width: min(640px, calc(100% - 32px));
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow-2);
+}
+.dialog::backdrop { background: rgba(10, 20, 18, 0.45); }
+.events { list-style: none; margin: var(--space-2) 0 0; padding: 0; max-height: 200px; overflow-y: auto; }
+.events li { padding: var(--space-2) 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.events li:last-child { border-bottom: none; }
+.preview-grid { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.preview-grid .stat { border: 1px solid var(--border); border-radius: var(--radius-btn); padding: var(--space-3) var(--space-4); }
+.preview-grid .stat-value { font-size: 24px; }
+details.pv { border: 1px solid var(--border); border-radius: var(--radius-btn); padding: var(--space-2) var(--space-4); }
+details.pv summary { cursor: pointer; font-weight: 500; min-height: 36px; display: flex; align-items: center; }
+details.pv ul { margin: var(--space-2) 0; padding-inline-start: var(--space-5); font-size: 14px; max-height: 220px; overflow-y: auto; }

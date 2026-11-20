@@ -87,4 +87,28 @@ const schoolCols = db.prepare('PRAGMA table_info(schools)').all().map((c) => c.n
 if (!schoolCols.includes('country_code')) db.exec("ALTER TABLE schools ADD COLUMN country_code TEXT NOT NULL DEFAULT '966'");
 db.exec('CREATE INDEX IF NOT EXISTS idx_records_student_date ON records(student_id, date)');
 
+// حالة الطالب: active نشط، withdrawn منقطع، transferred منتقل من المدرسة
+const studentCols = db.prepare('PRAGMA table_info(students)').all().map((c) => c.name);
+if (!studentCols.includes('status')) {
+  db.exec(`ALTER TABLE students ADD COLUMN status TEXT NOT NULL DEFAULT 'active';
+           ALTER TABLE students ADD COLUMN status_date TEXT;
+           ALTER TABLE students ADD COLUMN status_note TEXT;`);
+}
+db.exec(`
+CREATE INDEX IF NOT EXISTS idx_students_status ON students(school_id, status);
+-- سجل تغييرات الطالب: نقل بين الشعب، انقطاع، انتقال، إعادة تفعيل
+CREATE TABLE IF NOT EXISTS student_events (
+  id         INTEGER PRIMARY KEY,
+  school_id  INTEGER NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  date       TEXT NOT NULL,
+  kind       TEXT NOT NULL,
+  from_text  TEXT,
+  to_text    TEXT,
+  note       TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_events_student ON student_events(student_id);
+`);
+
 module.exports = db;

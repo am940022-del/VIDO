@@ -173,3 +173,65 @@ test('الصفوف الرقمية: توحيد الأرقام، الترتيب ا
   const secs2 = (await a('GET', '/api/admin/sections')).data.map((s) => `${s.grade}/${s.section}`);
   assert.ok(secs2.includes('12/3') && secs2.includes('12/4'));
 });
+
+test('إدارة الطلاب: نقل، انقطاع، انتقال، مزامنة القائمة، ودمج الشعب', async () => {
+  const a = client();
+  await a('POST', '/api/register', { schoolName: 'د', adminName: 'م', email: 'd@x.com', password: 'password1' });
+  const csv = (text) => { const fd = new FormData(); fd.append('file', new Blob([text]), 's.csv'); return fd; };
+  const up = (text, extra = {}) => { const fd = csv(text); for (const [k, v] of Object.entries(extra)) fd.append(k, v); return a('POST', '/api/admin/students/upload', fd, true); };
+
+  await up('الاسم,الصف,الشعبة,رقم الطالب\nسعد,11,1,1\nفهد,11,1,2\nماجد,11,2,3\nنواف,11,2,4\n');
+  const students = (await a('GET', '/api/admin/students')).data;
+  const id = (n) => students.find((s) => s.name === n).id;
+  const token = (await a('GET', '/api/admin/me')).data.school.teacher_token;
+  const t = client();
+
+  // نقل سعد إلى 11/2
+  assert.equal((await a('PATCH', `/api/admin/students/${id('سعد')}`, { grade: '11', section: '2', note: 'طلب ولي الأمر' })).status, 200);
+  // فهد منقطع
+  await a('PATCH', `/api/admin/students/${id('فهد')}`, { status: 'withdrawn', note: 'انقطاع' });
+  const secs = (await a('GET', '/api/admin/sections')).data;
+  assert.deepEqual(secs.map((s) => [s.section, s.students, s.inactive]), [['1', 0, 1], ['2', 3, 0]]);
+
+  // المعلم لا يرى المنقطع ولا يستطيع رصده
+  const info = (await t('GET', `/api/t/${token}/info`)).data;
+  assert.equal(info.sections.length, 1); // الشعبة 1 لم يعد فيها طلاب نشطون
+  const r = await t('POST', `/api/t/${token}/marks`, { items: [{ student_id: id('فهد'), period: 1, type: 'absent' }] });
+  assert.equal(r.data.saved, 0);
+
+  const detail = (await a('GET', `/api/admin/students/${id('سعد')}`)).data;
+  assert.equal(detail.events[0].kind, 'move');
+  assert.equal(detail.events[0].from_text, 'الصف 11 / شعبة 1');
+
+  // جماعي: ماجد ونواف منتقلان من المدرسة
+  const bulk = await a('POST', '/api/admin/students/bulk', { ids: [id('ماجد'), id('نواف')], action: 'status', status: 'transferred' });
+  assert.equal(bulk.data.changed, 2);
+  const counts = (await a('GET', '/api/admin/students/counts')).data;
+  assert.deepEqual(counts, { active: 1, withdrawn: 1, transferred: 2 });
+
+  // مزامنة: سعد ينتقل إلى 12/1، ماجد يعود، طالب جديد، ونواف غير موجود
+  const file = 'الاسم,الصف,الشعبة,رقم الطالب\nسعد,12,1,1\nماجد,11,2,3\nريان,12,1,9\nفهد,11,1,2\n';
+  const prev = (await up(file, { mode: 'sync', dry_run: '1' })).data;
+  assert.equal(prev.preview, true);
+  assert.deepEqual([prev.summary.moved, prev.summary.reactivated, prev.summary.added, prev.summary.missing], [1, 2, 1, 0]);
+  const ap = (await up(file, { mode: 'sync', missing_action: 'withdrawn' })).data;
+  assert.equal(ap.applied, true);
+  const after = (await a('GET', '/api/admin/students?status=all')).data;
+  const by = (n) => after.find((s) => s.name === n);
+  assert.equal(`${by('سعد').grade}/${by('سعد').section}`, '12/1');
+  assert.equal(by('ماجد').status, 'active');
+  assert.equal(by('فهد').status, 'active');
+  assert.equal(by('نواف').status, 'transferred');
+  assert.ok(by('ريان'));
+
+  // مزامنة ثانية بدون ريان: يصبح منقطعاً
+  const ap2 = (await up('الاسم,الصف,الشعبة\nسعد,12,1\nماجد,11,2\nفهد,11,1\n', { mode: 'sync', missing_action: 'withdrawn' })).data;
+  assert.equal(ap2.summary.missing, 1);
+  assert.equal((await a('GET', '/api/admin/students?status=withdrawn')).data[0].name, 'ريان');
+
+  // دمج الشعب: إعادة تسمية 11/1 إلى 11/2 تدمجهما
+  const s111 = (await a('GET', '/api/admin/sections')).data.find((s) => s.grade === '11' && s.section === '1');
+  const m = await a('PATCH', `/api/admin/sections/${s111.id}`, { grade: '11', section: '2' });
+  assert.equal(m.data.merged, true);
+  assert.equal((await a('GET', '/api/admin/sections')).data.filter((s) => s.grade === '11').length, 1);
+});

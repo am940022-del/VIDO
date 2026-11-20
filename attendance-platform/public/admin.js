@@ -98,7 +98,7 @@ async function loadOverview() {
   }</div>`;
   $('#o-top').innerHTML = topCard('absent', 'الأكثر غياباً') + topCard('late', 'الأكثر تأخراً') + topCard('escape', 'الأكثر هروباً');
 
-  $('#o-students').innerHTML = d.students.length ? d.students.map((s, i) => `<tr><td class="num">${i + 1}</td><td>${esc(s.name)}</td><td>${esc(gradeLabel(s.grade))}</td><td>${esc(s.section)}</td><td class="num">${s.absent}</td><td class="num">${s.late}</td><td class="num">${s.escape}</td><td class="num"><strong>${s.total}</strong></td>
+  $('#o-students').innerHTML = d.students.length ? d.students.map((s, i) => `<tr><td class="num">${i + 1}</td><td>${esc(s.name)}${s.status && s.status !== 'active' ? ` <span class="badge ${s.status}">${STATUS_LABEL[s.status]}</span>` : ''}</td><td>${esc(gradeLabel(s.grade))}</td><td>${esc(s.section)}</td><td class="num">${s.absent}</td><td class="num">${s.late}</td><td class="num">${s.escape}</td><td class="num"><strong>${s.total}</strong></td>
       <td>${guardianActions(s, from, to)}</td></tr>`).join('')
     : '<tr><td colspan="9" class="empty">لا توجد حالات مرصودة في هذه الفترة</td></tr>';
 }
@@ -194,42 +194,200 @@ $('#r-body').addEventListener('click', async (e) => {
 });
 
 /* ---------- الطلاب ---------- */
+const STATUS_LABEL = { active: 'نشط', withdrawn: 'منقطع', transferred: 'منتقل من المدرسة' };
+const EVENT_LABEL = { move: 'نقل', withdrawn: 'انقطاع', transferred: 'انتقال من المدرسة', reactivated: 'إعادة تفعيل', created: 'إضافة' };
+const selected = new Set();
+let studentRows = [];
+const secOptions = () => sections.map((s) => `<option value="${s.id}">${esc(gradeLabel(s.grade))} / شعبة ${esc(s.section)}</option>`).join('');
+
 async function loadStudentsTab() {
   await loadSections();
   $('#s-sections').innerHTML = sections.length ? sections.map((s) => `<tr><td>${esc(gradeLabel(s.grade))}</td><td>${esc(s.section)}</td><td class="num">${s.students}</td>
-    <td><button class="btn btn-ghost btn-sm btn-danger" data-del-section="${s.id}" type="button">حذف</button></td></tr>`).join('')
-    : '<tr><td colspan="4" class="empty">لم يتم رفع أي قائمة بعد</td></tr>';
+    <td class="num muted">${s.inactive || ''}</td>
+    <td><div class="row" style="flex-wrap:nowrap;gap:4px">
+      <button class="btn btn-ghost btn-sm" data-edit-section="${s.id}" type="button">تعديل</button>
+      <button class="btn btn-ghost btn-sm btn-danger" data-del-section="${s.id}" type="button">حذف</button></div></td></tr>`).join('')
+    : '<tr><td colspan="5" class="empty">لم يتم رفع أي قائمة بعد</td></tr>';
+  $('#s-bulk-section').innerHTML = '<option value="">نقل إلى شعبة…</option>' + secOptions();
+  const counts = await api(`${A}/students/counts`);
+  const sel = $('#s-status');
+  for (const o of sel.options) {
+    const base = { active: 'النشطون', withdrawn: 'المنقطعون', transferred: 'المنتقلون من المدرسة', all: 'الكل' }[o.value];
+    const n = o.value === 'all' ? counts.active + counts.withdrawn + counts.transferred : counts[o.value];
+    o.textContent = `${base} (${n})`;
+  }
   await loadStudentList();
 }
+
 async function loadStudentList() {
-  const list = await api(`${A}/students?${qs({ section_id: $('#s-filter-section').value, q: $('#s-q').value.trim() })}`);
-  $('#s-list').innerHTML = list.length ? list.map((s, i) => `<tr><td class="num">${i + 1}</td><td>${esc(s.name)}</td><td>${esc(gradeLabel(s.grade))}</td><td>${esc(s.section)}</td>
+  studentRows = await api(`${A}/students?${qs({ section_id: $('#s-filter-section').value, q: $('#s-q').value.trim(), status: $('#s-status').value })}`);
+  for (const id of [...selected]) if (!studentRows.some((s) => s.id === id)) selected.delete(id);
+  const from = me.today.slice(0, 8) + '01';
+  $('#s-list').innerHTML = studentRows.length ? studentRows.map((s, i) => `<tr class="${s.status !== 'active' ? 'inactive' : ''} ${selected.has(s.id) ? 'selected' : ''}" data-sid="${s.id}">
+    <td><input type="checkbox" class="check" data-pick="${s.id}" ${selected.has(s.id) ? 'checked' : ''} aria-label="تحديد ${esc(s.name)}"></td>
+    <td class="num">${i + 1}</td>
+    <td>${esc(s.name)} ${s.status !== 'active' ? `<span class="badge ${s.status}" title="${esc(s.status_note || '')}">${STATUS_LABEL[s.status]}${s.status_date ? ` · <bdi>${esc(s.status_date)}</bdi>` : ''}</span>` : ''}</td>
+    <td>${esc(gradeLabel(s.grade))}</td><td>${esc(s.section)}</td>
     <td class="num">${esc(s.student_no || '')}</td><td class="num"><bdi>${esc(s.guardian_phone || '')}</bdi></td>
     <td><div class="row" style="flex-wrap:nowrap;gap:4px">
-      <a class="btn btn-ghost btn-sm" href="/student-report?${qs({ student_id: s.id, from: me.today.slice(0, 8) + '01', to: me.today })}" target="_blank" rel="noopener">كشف</a>
-      <button class="btn btn-ghost btn-sm" data-edit-phone="${s.id}" data-phone-val="${esc(s.guardian_phone || '')}" type="button">الجوال</button>
+      <button class="btn btn-sm" data-edit-student="${s.id}" type="button">تعديل / نقل</button>
+      <a class="btn btn-ghost btn-sm" href="/student-report?${qs({ student_id: s.id, from, to: me.today })}" target="_blank" rel="noopener">كشف</a>
       <button class="btn btn-ghost btn-sm btn-danger" data-del-student="${s.id}" type="button">حذف</button></div></td></tr>`).join('')
-    : '<tr><td colspan="7" class="empty">لا يوجد طلاب</td></tr>';
+    : '<tr><td colspan="8" class="empty">لا يوجد طلاب</td></tr>';
+  updateBulk();
 }
+
+function updateBulk() {
+  $('#s-bulk').classList.toggle('hidden', !selected.size);
+  $('#s-bulk-count').textContent = `${selected.size} طالب محدد`;
+  $('#s-all').checked = studentRows.length > 0 && studentRows.every((s) => selected.has(s.id));
+}
+
 loaders.students = () => loadStudentsTab().catch((e) => toast(e.message));
 $('#s-filter-section').addEventListener('change', () => loadStudentList());
+$('#s-status').addEventListener('change', () => { selected.clear(); loadStudentList(); });
 let sqTimer;
 $('#s-q').addEventListener('input', () => { clearTimeout(sqTimer); sqTimer = setTimeout(loadStudentList, 250); });
 
+$('#s-list').addEventListener('change', (e) => {
+  const id = Number(e.target.dataset.pick);
+  if (!id) return;
+  e.target.checked ? selected.add(id) : selected.delete(id);
+  e.target.closest('tr').classList.toggle('selected', e.target.checked);
+  updateBulk();
+});
+$('#s-all').addEventListener('change', (e) => {
+  studentRows.forEach((s) => (e.target.checked ? selected.add(s.id) : selected.delete(s.id)));
+  loadStudentList();
+});
+$('#s-bulk-clear').addEventListener('click', () => { selected.clear(); loadStudentList(); });
+$$('[data-bulk]').forEach((b) => b.addEventListener('click', async () => {
+  const action = b.dataset.bulk;
+  const body = { ids: [...selected] };
+  if (action === 'move') {
+    body.action = 'move';
+    body.section_id = $('#s-bulk-section').value;
+    if (!body.section_id) return toast('اختر الشعبة المراد النقل إليها');
+  } else {
+    body.action = 'status';
+    body.status = action;
+    const note = prompt(`${STATUS_LABEL[action]} — السبب أو ملاحظة (اختياري):`, '');
+    if (note === null) return;
+    body.note = note;
+  }
+  try {
+    const r = await api(`${A}/students/bulk`, { method: 'POST', body });
+    toast(`تم تحديث ${r.changed} طالب`);
+    selected.clear();
+    await loadMe();
+    loaders.students();
+  } catch (ex) { toast(ex.message); }
+}));
+
+/* --- نافذة تعديل الطالب --- */
+let editing = null;
+async function openStudentDialog(id) {
+  const st = await api(`${A}/students/${id}`);
+  editing = st;
+  $('#st-title').textContent = st.name;
+  $('#st-name').value = st.name;
+  $('#st-no').value = st.student_no || '';
+  $('#st-phone').value = st.guardian_phone || '';
+  $('#st-section').innerHTML = secOptions();
+  $('#st-section').value = st.section_id;
+  $('#st-status').value = st.status;
+  $('#st-date').value = me.today;
+  $('#st-note').value = '';
+  $('#st-events').innerHTML = st.events.length ? st.events.map((ev) => `<li><bdi class="num">${esc(ev.date)}</bdi> — <strong>${EVENT_LABEL[ev.kind] || esc(ev.kind)}</strong>${
+    ev.from_text ? ` من ${esc(ev.from_text)}` : ''}${ev.to_text ? ` إلى ${esc(ev.to_text)}` : ''}${ev.note ? ` <span class="muted">(${esc(ev.note)})</span>` : ''}</li>`).join('')
+    : '<li class="muted">لا توجد تغييرات</li>';
+  $('#st-dialog').showModal();
+}
+$('#st-dialog').addEventListener('close', async () => {
+  if ($('#st-dialog').returnValue !== 'save' || !editing) return;
+  const f = Object.fromEntries(new FormData($('#st-form')));
+  const body = { name: f.name, student_no: f.student_no, guardian_phone: f.guardian_phone, date: f.date, note: f.note };
+  if (Number(f.section_id) !== editing.section_id) body.section_id = f.section_id;
+  if (f.status !== editing.status) body.status = f.status;
+  try {
+    await api(`${A}/students/${editing.id}`, { method: 'PATCH', body });
+    toast(body.section_id ? 'تم نقل الطالب' : body.status ? `تم: ${STATUS_LABEL[body.status]}` : 'تم الحفظ');
+    await loadMe();
+    loaders.students();
+  } catch (ex) { toast(ex.message); }
+  editing = null;
+});
+
+/* --- رفع/تحديث القائمة مع معاينة --- */
+let pendingUpload = null;
 $('#s-upload').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
-  if (fd.get('mode') === 'replace' && !confirm('سيتم حذف جميع الطلاب الحاليين وسجلاتهم. هل أنت متأكد؟')) return;
+  const mode = fd.get('mode');
+  if (mode === 'replace' && !confirm('سيتم حذف جميع الطلاب الحاليين وسجلاتهم. هل أنت متأكد؟')) return;
   const btn = e.target.querySelector('button');
   btn.disabled = true;
   try {
-    const r = await api(`${A}/students/upload`, { method: 'POST', form: fd });
-    toast(`تمت إضافة ${r.added} طالب${r.skipped ? ` (تم تجاهل ${r.skipped} مكرر)` : ''} — ${r.sections} شعبة`);
-    e.target.reset();
-    await loadMe();
-    loaders.students();
+    if (mode === 'sync') {
+      fd.append('dry_run', '1');
+      const p = await api(`${A}/students/upload`, { method: 'POST', form: fd });
+      pendingUpload = e.target.querySelector('input[type=file]').files[0];
+      renderPreview(p);
+    } else {
+      const r = await api(`${A}/students/upload`, { method: 'POST', form: fd });
+      toast(`تمت إضافة ${r.added} طالب${r.skipped ? ` (تم تجاهل ${r.skipped} مكرر)` : ''} — ${r.sections} شعبة`);
+      e.target.reset();
+      await loadMe();
+      loaders.students();
+    }
   } catch (ex) { toast(ex.message); } finally { btn.disabled = false; }
 });
+
+function renderPreview(p) {
+  const s = p.summary;
+  const list = (title, arr, fmt, open) => arr.length ? `<details class="pv" ${open ? 'open' : ''}><summary>${title} (${arr.length})</summary><ul>${arr.map(fmt).join('')}</ul></details>` : '';
+  const box = $('#s-preview');
+  box.innerHTML = `
+    <h3>معاينة التحديث — لم يُطبق شيء بعد</h3>
+    <div class="preview-grid" style="margin-top:12px">
+      <div class="stat"><div class="stat-label">بدون تغيير</div><div class="stat-value num">${s.unchanged}</div></div>
+      <div class="stat"><div class="stat-label">نقل إلى شعبة أخرى</div><div class="stat-value num">${s.moved}</div></div>
+      <div class="stat"><div class="stat-label">طلاب جدد</div><div class="stat-value num">${s.added}</div></div>
+      <div class="stat"><div class="stat-label">عائدون (إعادة تفعيل)</div><div class="stat-value num">${s.reactivated}</div></div>
+      <div class="stat"><div class="stat-label">غير موجودين في الملف</div><div class="stat-value num">${s.missing}</div></div>
+    </div>
+    <div class="stack" style="margin-top:16px">
+      ${list('سيتم نقلهم', p.moved, (x) => `<li>${esc(x.name)}: ${esc(x.from)} ← ${esc(x.to)}</li>`, true)}
+      ${list('طلاب جدد', p.added, (x) => `<li>${esc(x.name)} — ${esc(x.to)}</li>`)}
+      ${list('عائدون', p.reactivated, (x) => `<li>${esc(x.name)} — ${esc(x.to)}</li>`)}
+      ${list('غير موجودين في الملف الجديد', p.missing, (x) => `<li>${esc(x.name)} — ${esc(x.from)}</li>`, true)}
+      ${list('أسماء مكررة لم يمكن تحديدها (تُتجاهل — أضف رقم الطالب لتمييزها)', p.ambiguous, (x) => `<li>${esc(x.name)} — ${esc(x.to)}</li>`)}
+    </div>
+    ${s.missing ? `<div class="field" style="margin-top:16px;max-width:420px"><label for="pv-missing">ماذا نفعل بالطلاب غير الموجودين في الملف؟</label>
+      <select id="pv-missing"><option value="keep">إبقاؤهم كما هم</option><option value="transferred">اعتبارهم منتقلين من المدرسة</option><option value="withdrawn">اعتبارهم منقطعين</option></select></div>` : ''}
+    <div class="row" style="margin-top:24px">
+      <button class="btn btn-primary" id="pv-apply" type="button">تطبيق التغييرات</button>
+      <button class="btn btn-ghost" id="pv-cancel" type="button">إلغاء</button>
+    </div>`;
+  box.classList.remove('hidden');
+  $('#pv-cancel').onclick = () => { box.classList.add('hidden'); pendingUpload = null; };
+  $('#pv-apply').onclick = async () => {
+    const fd = new FormData();
+    fd.append('file', pendingUpload);
+    fd.append('mode', 'sync');
+    fd.append('missing_action', $('#pv-missing')?.value || 'keep');
+    try {
+      const r = await api(`${A}/students/upload`, { method: 'POST', form: fd });
+      toast(`تم التحديث: نقل ${r.summary.moved}، جدد ${r.summary.added}، عائدون ${r.summary.reactivated}`);
+      box.classList.add('hidden');
+      $('#s-upload').reset();
+      pendingUpload = null;
+      await loadMe();
+      loaders.students();
+    } catch (ex) { toast(ex.message); }
+  };
+}
+
 $('#s-add').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
@@ -240,22 +398,32 @@ $('#s-add').addEventListener('submit', async (e) => {
     loaders.students();
   } catch (ex) { toast(ex.message); }
 });
+
 document.addEventListener('click', async (e) => {
-  const sid = e.target.dataset.delStudent, secId = e.target.dataset.delSection;
-  if (e.target.dataset.editPhone) {
-    try { if (await editPhone(e.target.dataset.editPhone, e.target.dataset.phoneVal)) loadStudentList(); } catch (ex) { toast(ex.message); }
-    return;
-  }
-  if (sid && confirm('حذف الطالب وجميع سجلاته؟')) {
-    await api(`${A}/students/${sid}`, { method: 'DELETE' });
-    toast('تم الحذف');
-    loaders.students();
-  }
-  if (secId && confirm('حذف الشعبة وجميع طلابها وسجلاتهم؟')) {
-    await api(`${A}/sections/${secId}`, { method: 'DELETE' });
-    toast('تم الحذف');
-    loaders.students();
-  }
+  const d = e.target.dataset || {};
+  try {
+    if (d.editStudent) return await openStudentDialog(d.editStudent);
+    if (d.editSection) {
+      const sec = sections.find((s) => s.id === Number(d.editSection));
+      const grade = prompt('اسم/رقم الصف:', sec.grade);
+      if (grade === null) return;
+      const section = prompt('رقم الشعبة:', sec.section);
+      if (section === null) return;
+      const r = await api(`${A}/sections/${sec.id}`, { method: 'PATCH', body: { grade, section } });
+      toast(r.merged ? 'تم دمج الشعبتين' : 'تم التعديل');
+      return loaders.students();
+    }
+    if (d.delStudent && confirm('حذف الطالب نهائياً مع جميع سجلاته؟\nإن كان الطالب انقطع أو انتقل فالأفضل استخدام «تعديل / نقل» وتغيير حالته للحفاظ على سجلاته.')) {
+      await api(`${A}/students/${d.delStudent}`, { method: 'DELETE' });
+      toast('تم الحذف');
+      loaders.students();
+    }
+    if (d.delSection && confirm('حذف الشعبة وجميع طلابها وسجلاتهم نهائياً؟')) {
+      await api(`${A}/sections/${d.delSection}`, { method: 'DELETE' });
+      toast('تم الحذف');
+      loaders.students();
+    }
+  } catch (ex) { toast(ex.message); }
 });
 
 /* ---------- المعلمون ---------- */

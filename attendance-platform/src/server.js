@@ -157,7 +157,7 @@ admin.use(requireAdmin);
 admin.get('/me', (req, res) => {
   const s = db.prepare('SELECT id, name, admin_name, email, teacher_token, country_code, created_at FROM schools WHERE id = ?').get(req.schoolId);
   const counts = db.prepare(`SELECT
-      (SELECT COUNT(*) FROM students WHERE school_id = @id) AS students,
+      (SELECT COUNT(*) FROM students WHERE school_id = @id AND status = 'active') AS students,
       (SELECT COUNT(*) FROM teachers WHERE school_id = @id) AS teachers,
       (SELECT COUNT(*) FROM sections WHERE school_id = @id) AS sections,
       (SELECT COUNT(*) FROM periods  WHERE school_id = @id) AS periods`).get({ id: req.schoolId });
@@ -191,11 +191,37 @@ admin.post('/rotate-link', (req, res) => {
 
 /* --- الصفوف والطلاب --- */
 
+const STATUSES = ['active', 'withdrawn', 'transferred'];
+const STATUS_LABEL = { active: 'نشط', withdrawn: 'منقطع', transferred: 'منتقل من المدرسة' };
+const secText = (grade, section) => `${/^\d+$/.test(grade) ? `الصف ${grade}` : grade} / شعبة ${section}`;
+
 admin.get('/sections', (req, res) => {
-  const rows = db.prepare(`SELECT sec.id, sec.grade, sec.section, COUNT(st.id) AS students
+  const rows = db.prepare(`SELECT sec.id, sec.grade, sec.section,
+      COUNT(CASE WHEN st.status = 'active' THEN 1 END) AS students,
+      COUNT(CASE WHEN st.status != 'active' THEN 1 END) AS inactive
     FROM sections sec LEFT JOIN students st ON st.section_id = sec.id
     WHERE sec.school_id = ? GROUP BY sec.id`).all(req.schoolId);
   res.json(sortSections(rows));
+});
+
+/** إعادة تسمية شعبة؛ وإن وُجدت شعبة بنفس الاسم تُدمج فيها (ينتقل طلابها وسجلاتها) */
+admin.patch('/sections/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const sec = db.prepare('SELECT * FROM sections WHERE id = ? AND school_id = ?').get(id, req.schoolId);
+  if (!sec) throw new HttpError(404, 'الشعبة غير موجودة');
+  const grade = xl.normGrade(str(req.body.grade, 60)), section = xl.normSection(str(req.body.section, 30));
+  if (!grade || !section) throw new HttpError(400, 'الصف والشعبة مطلوبان');
+  const target = db.prepare('SELECT id FROM sections WHERE school_id = ? AND grade = ? AND section = ? AND id != ?').get(req.schoolId, grade, section, id);
+  db.transaction(() => {
+    if (target) {
+      db.prepare('UPDATE students SET section_id = ? WHERE section_id = ?').run(target.id, id);
+      db.prepare('UPDATE records SET section_id = ? WHERE section_id = ?').run(target.id, id);
+      db.prepare('DELETE FROM sections WHERE id = ?').run(id);
+    } else {
+      db.prepare('UPDATE sections SET grade = ?, section = ? WHERE id = ?').run(grade, section, id);
+    }
+  })();
+  res.json({ ok: true, merged: !!target });
 });
 
 admin.delete('/sections/:id', (req, res) => {
@@ -209,6 +235,80 @@ function getOrCreateSection(schoolId, grade, section) {
   return db.prepare('INSERT INTO sections (school_id, grade, section) VALUES (?,?,?)').run(schoolId, grade, section).lastInsertRowid;
 }
 
+function logEvent(schoolId, studentId, kind, fromText, toText, note, date) {
+  db.prepare('INSERT INTO student_events (school_id, student_id, date, kind, from_text, to_text, note) VALUES (?,?,?,?,?,?,?)')
+    .run(schoolId, studentId, date || today(), kind, fromText || null, toText || null, note || null);
+}
+
+/** نقل طالب لشعبة أخرى (السجلات السابقة تبقى باسم الشعبة القديمة للإحصاء التاريخي) */
+function moveStudent(schoolId, st, secId, note, date) {
+  if (st.section_id === secId) return false;
+  const from = db.prepare('SELECT grade, section FROM sections WHERE id = ?').get(st.section_id);
+  const to = db.prepare('SELECT grade, section FROM sections WHERE id = ? AND school_id = ?').get(secId, schoolId);
+  if (!to) throw new HttpError(404, 'الشعبة غير موجودة');
+  db.prepare('UPDATE students SET section_id = ? WHERE id = ?').run(secId, st.id);
+  logEvent(schoolId, st.id, 'move', secText(from.grade, from.section), secText(to.grade, to.section), note, date);
+  st.section_id = secId;
+  return true;
+}
+
+function setStudentStatus(schoolId, st, status, note, date) {
+  if (!STATUSES.includes(status)) throw new HttpError(400, 'حالة غير صحيحة');
+  if (st.status === status) return false;
+  const d = date || today();
+  db.prepare('UPDATE students SET status = ?, status_date = ?, status_note = ? WHERE id = ?')
+    .run(status, status === 'active' ? null : d, status === 'active' ? null : note || null, st.id);
+  logEvent(schoolId, st.id, status === 'active' ? 'reactivated' : status, STATUS_LABEL[st.status], STATUS_LABEL[status], note, d);
+  st.status = status;
+  return true;
+}
+
+/** يحدد الشعبة المطلوبة من section_id أو من (grade, section) مع إنشائها إن لزم */
+function targetSection(schoolId, body) {
+  if (body.section_id) return Number(body.section_id);
+  const grade = xl.normGrade(str(body.grade, 60)), section = xl.normSection(str(body.section, 30));
+  if (!grade || !section) return null;
+  return getOrCreateSection(schoolId, grade, section);
+}
+
+/* ---------- رفع القوائم ومزامنتها ----------
+ * mode=append  : إضافة فقط
+ * mode=replace : حذف الكل ثم إضافة
+ * mode=sync    : تحديث القائمة — يطابق الطلاب (برقم الطالب ثم بالاسم)، ينقل من تغيرت شعبته،
+ *                يضيف الجدد، يعيد تفعيل العائدين، ويعالج من لم يرد في الملف حسب missing_action.
+ *                مع dry_run=1 يعيد معاينة التغييرات دون تطبيقها.
+ */
+function planSync(schoolId, list) {
+  const all = db.prepare(`SELECT st.id, st.name, st.student_no, st.guardian_phone, st.section_id, st.status, sec.grade, sec.section
+    FROM students st JOIN sections sec ON sec.id = st.section_id WHERE st.school_id = ?`).all(schoolId);
+  const byNo = new Map(), byName = new Map();
+  for (const s of all) {
+    if (s.student_no) byNo.set(String(s.student_no), s);
+    const k = s.name.replace(/\s+/g, ' ').trim();
+    if (!byName.has(k)) byName.set(k, []);
+    byName.get(k).push(s);
+  }
+  const used = new Set();
+  const plan = { unchanged: [], moved: [], reactivated: [], added: [], ambiguous: [], missing: [] };
+  for (const row of list) {
+    let match = row.student_no && byNo.get(String(row.student_no));
+    if (match && used.has(match.id)) match = null;
+    if (!match) {
+      const cands = (byName.get(row.name) || []).filter((c) => !used.has(c.id));
+      match = cands.find((c) => c.grade === row.grade && c.section === row.section) || (cands.length === 1 ? cands[0] : null);
+      if (!match && cands.length > 1) { plan.ambiguous.push({ name: row.name, to: secText(row.grade, row.section) }); continue; }
+    }
+    if (!match) { plan.added.push({ row, name: row.name, to: secText(row.grade, row.section) }); continue; }
+    used.add(match.id);
+    const item = { row, st: match, name: match.name, from: secText(match.grade, match.section), to: secText(row.grade, row.section) };
+    if (match.status !== 'active') plan.reactivated.push(item);
+    else if (match.grade !== row.grade || match.section !== row.section) plan.moved.push(item);
+    else plan.unchanged.push(item);
+  }
+  for (const s of all) if (s.status === 'active' && !used.has(s.id)) plan.missing.push({ st: s, name: s.name, from: secText(s.grade, s.section) });
+  return plan;
+}
+
 admin.post('/students/upload', upload.single('file'), wrap(async (req, res) => {
   if (!req.file) throw new HttpError(400, 'أرفق ملف Excel (xlsx) أو CSV');
   let list;
@@ -218,10 +318,37 @@ admin.post('/students/upload', upload.single('file'), wrap(async (req, res) => {
     throw new HttpError(400, e.message || 'تعذر قراءة الملف');
   }
   if (!list.length) throw new HttpError(400, 'لم يتم العثور على طلاب في الملف');
-  const replace = req.body.mode === 'replace';
+  const mode = ['replace', 'sync'].includes(req.body.mode) ? req.body.mode : 'append';
+
+  if (mode === 'sync') {
+    const plan = planSync(req.schoolId, list);
+    const view = (arr) => arr.slice(0, 300).map(({ name, from, to }) => ({ name, from, to }));
+    const summary = Object.fromEntries(Object.entries(plan).map(([k, v]) => [k, v.length]));
+    if (req.body.dry_run === '1') {
+      return res.json({ preview: true, summary, moved: view(plan.moved), reactivated: view(plan.reactivated), added: view(plan.added), missing: view(plan.missing), ambiguous: plan.ambiguous.slice(0, 300) });
+    }
+    const missingAction = ['withdrawn', 'transferred'].includes(req.body.missing_action) ? req.body.missing_action : 'keep';
+    const note = 'تحديث القائمة';
+    const upd = db.prepare('UPDATE students SET student_no = COALESCE(?, student_no), guardian_phone = COALESCE(?, guardian_phone) WHERE id = ?');
+    const ins = db.prepare('INSERT INTO students (school_id, section_id, name, student_no, guardian_phone) VALUES (?,?,?,?,?)');
+    db.transaction(() => {
+      for (const it of [...plan.unchanged, ...plan.moved, ...plan.reactivated]) {
+        upd.run(it.row.student_no, it.row.guardian_phone, it.st.id);
+        moveStudent(req.schoolId, it.st, getOrCreateSection(req.schoolId, it.row.grade, it.row.section), note);
+        if (it.st.status !== 'active') setStudentStatus(req.schoolId, it.st, 'active', note);
+      }
+      for (const it of plan.added) {
+        const r = ins.run(req.schoolId, getOrCreateSection(req.schoolId, it.row.grade, it.row.section), it.row.name, it.row.student_no, it.row.guardian_phone);
+        logEvent(req.schoolId, r.lastInsertRowid, 'created', null, it.to, note);
+      }
+      if (missingAction !== 'keep') for (const it of plan.missing) setStudentStatus(req.schoolId, it.st, missingAction, 'غير موجود في القائمة المحدّثة');
+    })();
+    return res.json({ applied: true, summary, missing_action: missingAction });
+  }
+
   let added = 0, skipped = 0;
   db.transaction(() => {
-    if (replace) db.prepare('DELETE FROM sections WHERE school_id = ?').run(req.schoolId); // يحذف الطلاب والسجلات تبعاً
+    if (mode === 'replace') db.prepare('DELETE FROM sections WHERE school_id = ?').run(req.schoolId); // يحذف الطلاب والسجلات تبعاً
     const exists = db.prepare('SELECT 1 FROM students WHERE section_id = ? AND name = ?');
     const ins = db.prepare('INSERT INTO students (school_id, section_id, name, student_no, guardian_phone) VALUES (?,?,?,?,?)');
     for (const s of list) {
@@ -238,20 +365,84 @@ admin.post('/students/upload', upload.single('file'), wrap(async (req, res) => {
 admin.get('/students', (req, res) => {
   const secId = Number(req.query.section_id) || null;
   const q = str(req.query.q, 100);
-  const rows = db.prepare(`SELECT st.id, st.name, st.student_no, st.guardian_phone, sec.grade, sec.section, sec.id AS section_id
+  const status = STATUSES.includes(req.query.status) ? req.query.status : req.query.status === 'all' ? '' : 'active';
+  const rows = db.prepare(`SELECT st.id, st.name, st.student_no, st.guardian_phone, st.status, st.status_date, st.status_note,
+      sec.grade, sec.section, sec.id AS section_id
     FROM students st JOIN sections sec ON sec.id = st.section_id
     WHERE st.school_id = @school AND (@sec IS NULL OR st.section_id = @sec) AND (@q = '' OR st.name LIKE '%' || @q || '%')
-    LIMIT 3000`).all({ school: req.schoolId, sec: secId, q });
+      AND (@status = '' OR st.status = @status)
+    LIMIT 5000`).all({ school: req.schoolId, sec: secId, q, status });
   res.json(rows.sort((a, b) => collator.compare(a.grade, b.grade) || collator.compare(a.section, b.section) || collator.compare(a.name, b.name)));
+});
+
+admin.get('/students/counts', (req, res) => {
+  const counts = db.prepare('SELECT status, COUNT(*) AS n FROM students WHERE school_id = ? GROUP BY status').all(req.schoolId);
+  res.json(Object.fromEntries(STATUSES.map((s) => [s, counts.find((c) => c.status === s)?.n || 0])));
+});
+
+admin.get('/students/:id', (req, res) => {
+  const st = db.prepare(`SELECT st.id, st.name, st.student_no, st.guardian_phone, st.status, st.status_date, st.status_note,
+      sec.grade, sec.section, sec.id AS section_id
+    FROM students st JOIN sections sec ON sec.id = st.section_id WHERE st.id = ? AND st.school_id = ?`).get(Number(req.params.id), req.schoolId);
+  if (!st) throw new HttpError(404, 'الطالب غير موجود');
+  st.events = db.prepare('SELECT date, kind, from_text, to_text, note FROM student_events WHERE student_id = ? ORDER BY id DESC').all(st.id);
+  st.records = db.prepare('SELECT COUNT(*) AS n FROM records WHERE student_id = ?').get(st.id).n;
+  res.json(st);
 });
 
 admin.post('/students', (req, res) => {
   const name = str(req.body.name), grade = xl.normGrade(str(req.body.grade, 60)), section = xl.normSection(str(req.body.section, 30));
   if (!name || !grade || !section) throw new HttpError(400, 'الاسم والصف والشعبة مطلوبة');
   const secId = getOrCreateSection(req.schoolId, grade, section);
-  db.prepare('INSERT INTO students (school_id, section_id, name, student_no, guardian_phone) VALUES (?,?,?,?,?)')
+  const r = db.prepare('INSERT INTO students (school_id, section_id, name, student_no, guardian_phone) VALUES (?,?,?,?,?)')
     .run(req.schoolId, secId, name, str(req.body.student_no, 40) || null, str(req.body.guardian_phone, 30) || null);
+  logEvent(req.schoolId, r.lastInsertRowid, 'created', null, secText(grade, section), 'إضافة يدوية');
   res.json({ ok: true });
+});
+
+/** تعديل جزئي: البيانات، النقل لشعبة أخرى، والحالة (نشط/منقطع/منتقل) */
+admin.patch('/students/:id', (req, res) => {
+  const st = db.prepare('SELECT * FROM students WHERE id = ? AND school_id = ?').get(Number(req.params.id), req.schoolId);
+  if (!st) throw new HttpError(404, 'الطالب غير موجود');
+  const b = req.body;
+  const date = isDate(b.date) ? b.date : today();
+  db.transaction(() => {
+    if (b.name !== undefined) {
+      const name = str(b.name);
+      if (!name) throw new HttpError(400, 'الاسم مطلوب');
+      db.prepare('UPDATE students SET name = ? WHERE id = ?').run(name, st.id);
+    }
+    if (b.student_no !== undefined) db.prepare('UPDATE students SET student_no = ? WHERE id = ?').run(str(b.student_no, 40) || null, st.id);
+    if (b.guardian_phone !== undefined) db.prepare('UPDATE students SET guardian_phone = ? WHERE id = ?').run(str(b.guardian_phone, 30) || null, st.id);
+    if (b.section_id !== undefined || b.grade !== undefined) {
+      const secId = targetSection(req.schoolId, b);
+      if (!secId) throw new HttpError(400, 'حدد الشعبة');
+      moveStudent(req.schoolId, st, secId, str(b.note, 300), date);
+    }
+    if (b.status !== undefined) setStudentStatus(req.schoolId, st, b.status, str(b.note, 300), date);
+  })();
+  res.json({ ok: true });
+});
+
+/** إجراء جماعي على عدة طلاب: نقل إلى شعبة، أو تغيير الحالة */
+admin.post('/students/bulk', (req, res) => {
+  const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(Number).filter(Boolean).slice(0, 2000);
+  if (!ids.length) throw new HttpError(400, 'لم يتم اختيار طلاب');
+  const date = isDate(req.body.date) ? req.body.date : today();
+  const note = str(req.body.note, 300);
+  const get = db.prepare('SELECT * FROM students WHERE id = ? AND school_id = ?');
+  let changed = 0;
+  db.transaction(() => {
+    const secId = req.body.action === 'move' ? targetSection(req.schoolId, req.body) : null;
+    if (req.body.action === 'move' && !secId) throw new HttpError(400, 'حدد الشعبة');
+    if (req.body.action !== 'move' && req.body.action !== 'status') throw new HttpError(400, 'إجراء غير معروف');
+    for (const id of ids) {
+      const st = get.get(id, req.schoolId);
+      if (!st) continue;
+      if (req.body.action === 'move' ? moveStudent(req.schoolId, st, secId, note, date) : setStudentStatus(req.schoolId, st, req.body.status, note, date)) changed++;
+    }
+  })();
+  res.json({ ok: true, changed });
 });
 
 admin.delete('/students/:id', (req, res) => {
@@ -350,7 +541,7 @@ function queryRecords(f) {
 }
 
 function queryStudentSummary(f) {
-  return db.prepare(`SELECT st.id, st.name, sec.grade, sec.section, st.guardian_phone,
+  return db.prepare(`SELECT st.id, st.name, sec.grade, sec.section, st.guardian_phone, st.status,
       SUM(r.type = 'absent') AS absent, SUM(r.type = 'late') AS late, SUM(r.type = 'escape') AS "escape", COUNT(*) AS total
     FROM records r JOIN students st ON st.id = r.student_id JOIN sections sec ON sec.id = r.section_id
     WHERE ${FILTER_SQL} GROUP BY st.id ORDER BY total DESC, st.name LIMIT 5000`).all(f);
@@ -374,7 +565,7 @@ admin.get('/stats', (req, res) => {
   const byDay = db.prepare(`SELECT r.date, SUM(r.type='absent') AS absent, SUM(r.type='late') AS late, SUM(r.type='escape') AS "escape"
       ${base} GROUP BY r.date ORDER BY r.date`).all(f);
   const bySection = db.prepare(`SELECT sec.id, sec.grade, sec.section,
-      (SELECT COUNT(*) FROM students s2 WHERE s2.section_id = sec.id) AS size,
+      (SELECT COUNT(*) FROM students s2 WHERE s2.section_id = sec.id AND s2.status = 'active') AS size,
       SUM(r.type='absent') AS absent, SUM(r.type='late') AS late, SUM(r.type='escape') AS "escape", COUNT(*) AS total
       ${base} GROUP BY sec.id ORDER BY total DESC`).all(f);
   const byPeriod = db.prepare(`SELECT r.period_number AS period, SUM(r.type='absent') AS absent, SUM(r.type='late') AS late, SUM(r.type='escape') AS "escape"
@@ -384,12 +575,6 @@ admin.get('/stats', (req, res) => {
   res.json({ filters: f, totals, byDay, bySection, byPeriod, top: { absent: top('absent'), late: top('late'), escape: top('escape') }, students });
 });
 
-admin.patch('/students/:id', (req, res) => {
-  const phone = str(req.body.guardian_phone, 30) || null;
-  const r = db.prepare('UPDATE students SET guardian_phone = ? WHERE id = ? AND school_id = ?').run(phone, Number(req.params.id), req.schoolId);
-  if (!r.changes) throw new HttpError(404, 'الطالب غير موجود');
-  res.json({ ok: true });
-});
 
 /**
  * كشوف أولياء الأمور: لكل طالب سجلاته في الفترة.
@@ -479,7 +664,7 @@ teacher.use((req, res, next) => {
 
 teacher.get('/info', (req, res) => {
   const sections = db.prepare(`SELECT sec.id, sec.grade, sec.section, COUNT(st.id) AS students
-    FROM sections sec LEFT JOIN students st ON st.section_id = sec.id
+    FROM sections sec JOIN students st ON st.section_id = sec.id AND st.status = 'active'
     WHERE sec.school_id = ? GROUP BY sec.id`).all(req.schoolId);
   sortSections(sections);
   res.json({
@@ -500,7 +685,7 @@ teacher.get('/sections/:id/students', (req, res) => {
   const students = db.prepare(`SELECT st.id, st.name,
       (SELECT r.type FROM records r WHERE r.student_id = st.id AND r.date = @date AND r.period_number = @period) AS status,
       (SELECT GROUP_CONCAT(r.period_number || ':' || r.type) FROM records r WHERE r.student_id = st.id AND r.date = @date AND r.period_number != @period) AS other
-    FROM students st WHERE st.section_id = @sec AND st.school_id = @school ORDER BY st.name`).all({ sec: secId, school: req.schoolId, date, period });
+    FROM students st WHERE st.section_id = @sec AND st.school_id = @school AND st.status = 'active' ORDER BY st.name`).all({ sec: secId, school: req.schoolId, date, period });
   res.json({ section: sec, date, period, students });
 });
 
@@ -518,7 +703,7 @@ function teacherOf(schoolId, id) {
  */
 function applyMarks(schoolId, teacher, items) {
   const date = today();
-  const getStudent = db.prepare('SELECT id, section_id FROM students WHERE id = ? AND school_id = ?');
+  const getStudent = db.prepare("SELECT id, section_id FROM students WHERE id = ? AND school_id = ? AND status = 'active'");
   const validPeriods = new Set(db.prepare('SELECT number FROM periods WHERE school_id = ?').all(schoolId).map((p) => p.number));
   const upsert = db.prepare(`INSERT INTO records (school_id, student_id, section_id, date, period_number, type, teacher_id, teacher_name, note)
     VALUES (?,?,?,?,?,?,?,?,?)
