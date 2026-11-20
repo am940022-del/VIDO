@@ -26,7 +26,60 @@ npm test           # اختبارات الـ API والعزل بين المدا�
 | `DATA_DIR` | `./data` | مكان ملف قاعدة البيانات SQLite |
 | `SCHOOL_TZ` | `Asia/Riyadh` | المنطقة الزمنية لتحديد تاريخ "اليوم" |
 | `TEACHER_RATE_LIMIT` | `1500` | أقصى عدد طلبات للمعلمين في الدقيقة لكل مدرسة وعنوان |
+| `BACKUP_INTERVAL_HOURS` | `24` | النسخ الاحتياطي التلقائي كل كم ساعة (`0` لتعطيله) |
+| `BACKUP_KEEP` | `14` | عدد النسخ الاحتياطية المحفوظة |
+| `COOKIE_SECURE` | `true` في الإنتاج | اجعله `false` فقط للتجربة بدون HTTPS |
 | `NODE_ENV` | — | اضبطه على `production` خلف HTTPS لتفعيل الكوكي الآمن |
+
+## النشر على خادم
+
+### الطريقة الموصى بها: خادم VPS + Docker (HTTPS تلقائي)
+
+يكفي خادم صغير (1 معالج، 1 جيجابايت ذاكرة) من أي مزود (Hetzner، DigitalOcean، AWS Lightsail، أو مزود محلي)، ويخدم عشرات المدارس.
+
+1. **النطاق**: أنشئ سجل DNS من نوع `A` لنطاقك (مثلاً `attendance.example.com`) يشير إلى عنوان IP الخادم.
+2. **ثبّت Docker** على الخادم (Ubuntu):
+   ```bash
+   curl -fsSL https://get.docker.com | sh
+   ```
+3. **انسخ المشروع وشغّله**:
+   ```bash
+   git clone <رابط المستودع> && cd <المستودع>/attendance-platform
+   cp .env.example .env
+   nano .env            # ضع نطاقك في DOMAIN
+   docker compose up -d --build
+   ```
+4. افتح `https://نطاقك` — الشهادة تُصدر تلقائياً من Let's Encrypt عبر Caddy خلال دقيقة.
+5. افتح المنفذين 80 و443 فقط في جدار الحماية:
+   ```bash
+   ufw allow OpenSSH && ufw allow 80 && ufw allow 443 && ufw enable
+   ```
+
+**التحديث لاحقاً:**
+```bash
+git pull && docker compose up -d --build
+```
+
+**النسخ الاحتياطي:**
+- تلقائي كل 24 ساعة داخل وحدة التخزين (`/data/backups`) مع الاحتفاظ بآخر 14 نسخة.
+- نسخة فورية إلى الخادم: `./deploy/backup-now.sh` (تُحفظ في `backups/`). يُنصح بنسخ هذا المجلد دورياً خارج الخادم.
+- الاستعادة: `./deploy/restore.sh backups/attendance-XXXX.db`
+
+**السجلات والحالة:** `docker compose logs -f app` — وفحص الصحة على `/healthz`.
+
+### بديل: منصات الاستضافة المُدارة (Render / Railway / Fly.io)
+
+المشروع يحتوي `Dockerfile` جاهزاً. الشروط:
+- **قرص دائم (Persistent Disk/Volume)** مركّب على `/data` — بدونه تُحذف البيانات عند كل نشر.
+- نسخة واحدة فقط من التطبيق (SQLite لا يدعم تشغيل عدة نسخ على نفس الملف).
+- متغيرات البيئة: `NODE_ENV=production` و`SCHOOL_TZ=Asia/Riyadh`، والمنصة توفر HTTPS تلقائياً.
+- مسار فحص الصحة: `/healthz`.
+
+### ملاحظات أمان للإنتاج
+- لا تشغّل المنصة بدون HTTPS: كوكي الدخول آمن (`Secure`) ولن يعمل على `http`.
+  للتجربة فقط على عنوان IP بدون شهادة: `COOKIE_SECURE=false`.
+- التطبيق يعمل بمستخدم غير root داخل الحاوية، ومنفذه غير مكشوف مباشرة (Caddy فقط).
+- ملف `.env` لا يُرفع إلى Git.
 
 ## صيغة الصفوف والشعب
 
@@ -74,6 +127,8 @@ npm test           # اختبارات الـ API والعزل بين المدا�
 src/server.js   الخادم و الـ API (Express)
 src/db.js       مخطط قاعدة البيانات (SQLite)
 src/excel.js    قراءة ملفات الرفع وإنشاء ملفات Excel
+src/backup.js   النسخ الاحتياطي التلقائي
+Dockerfile, docker-compose.yml, deploy/   ملفات النشر (Caddy، النسخ والاستعادة)
 public/         الواجهات: index (تسجيل/دخول)، admin (لوحة المدير)، teacher (المعلم)، report (تقرير PDF)
 test/           اختبارات
 ```

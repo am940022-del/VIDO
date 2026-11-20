@@ -1,0 +1,36 @@
+name: attendance-platform
+
+on:
+  push:
+    paths: ['attendance-platform/**', '.github/workflows/attendance-platform.yml']
+  pull_request:
+    paths: ['attendance-platform/**', '.github/workflows/attendance-platform.yml']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: attendance-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: attendance-platform/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t attendance-platform attendance-platform
+      - name: Smoke test
+        run: |
+          docker run -d --name app -p 3000:3000 -e COOKIE_SECURE=false attendance-platform
+          for i in $(seq 1 20); do curl -fs localhost:3000/healthz && exit 0; sleep 1; done
+          docker logs app; exit 1

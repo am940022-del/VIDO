@@ -15,6 +15,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const TZ = process.env.SCHOOL_TZ || 'Asia/Riyadh';
 const IS_PROD = process.env.NODE_ENV === 'production';
+// الكوكي الآمن يتطلب HTTPS؛ يمكن تعطيله مؤقتاً للتجربة على عنوان IP بدون شهادة
+const COOKIE_SECURE = process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : IS_PROD;
 const SESSION_DAYS = 14;
 const TYPES = ['absent', 'late', 'escape'];
 
@@ -82,6 +84,12 @@ function sameOrigin(req, res, next) {
 }
 app.use('/api', sameOrigin);
 
+/* فحص الصحة لمنصات الاستضافة ومراقبة التشغيل */
+app.get('/healthz', (req, res) => {
+  db.prepare('SELECT 1').get();
+  res.json({ ok: true });
+});
+
 /* ---------------- مصادقة المدير ---------------- */
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'محاولات كثيرة، حاول لاحقاً' } });
@@ -89,7 +97,7 @@ const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHea
 function setSession(res, schoolId) {
   const token = newToken(32);
   db.prepare('INSERT INTO sessions (token, school_id, expires_at) VALUES (?,?,?)').run(token, schoolId, Date.now() + SESSION_DAYS * 864e5);
-  res.cookie('sid', token, { httpOnly: true, sameSite: 'lax', secure: IS_PROD, maxAge: SESSION_DAYS * 864e5, path: '/' });
+  res.cookie('sid', token, { httpOnly: true, sameSite: 'lax', secure: COOKIE_SECURE, maxAge: SESSION_DAYS * 864e5, path: '/' });
 }
 
 function requireAdmin(req, res, next) {
@@ -579,7 +587,25 @@ app.use((err, req, res, next) => {
 });
 
 if (require.main === module) {
-  app.listen(PORT, () => console.log(`منصة الحضور تعمل على http://localhost:${PORT}`));
+  const backup = require('./backup');
+  const server = app.listen(PORT, () => console.log(`منصة الحضور تعمل على المنفذ ${PORT} (${IS_PROD ? 'production' : 'development'})`));
+  const stopBackups = backup.schedule();
+  // تنظيف الجلسات المنتهية كل ساعة
+  const cleanup = setInterval(() => db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now()), 3600e3);
+  cleanup.unref();
+
+  // إيقاف آمن: إنهاء الطلبات الجارية ثم إغلاق قاعدة البيانات
+  const shutdown = (sig) => {
+    console.log(`${sig}: إيقاف الخادم…`);
+    stopBackups();
+    server.close(() => {
+      db.close();
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 10000).unref();
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
 module.exports = app;
