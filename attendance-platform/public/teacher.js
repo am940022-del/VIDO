@@ -176,7 +176,6 @@ async function openList() {
     }
     lsSet(K.last, { sectionId: state.sectionId, period: state.period });
     $('#crumbs').innerHTML = `<strong>${esc(gradeLabel(data.section.grade))}</strong><span class="sep">‹</span><span>${esc(sectionLabel(data.section.section))}</span><span class="sep">‹</span><span>الحصة ${data.period}</span>`;
-    $('#search').value = '';
     renderList();
     show('list');
   } catch (e) {
@@ -200,11 +199,9 @@ function rowHtml(s, i) {
 }
 
 function renderList() {
-  const q = normAr($('#search').value);
-  const list = state.students.filter((s) => !q || normAr(s.name).includes(q));
-  $('#students').innerHTML = list.length
-    ? list.map((s) => rowHtml(s, state.students.indexOf(s))).join('')
-    : `<p class="empty">${state.students.length ? 'لا توجد نتائج مطابقة' : 'لا يوجد طلاب في هذه الشعبة'}</p>`;
+  $('#students').innerHTML = state.students.length
+    ? state.students.map((s, i) => rowHtml(s, i)).join('')
+    : '<p class="empty">لا يوجد طلاب في هذه الشعبة</p>';
   renderSummary();
 }
 
@@ -316,7 +313,68 @@ $('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') clos
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
 
 /* ---------------- أحداث عامة ---------------- */
-/* ---------------- اختيار المعلم: قائمة منسدلة في الأعلى مع بحث ---------------- */
+/* ---------------- قائمة منسدلة مع بحث (تُستخدم للمعلمين وللطلاب) ---------------- */
+function makePicker({ root, items, label, matches, onChoose, selectedId }) {
+  const btn = $('.picker-btn', root), panel = $('.picker-panel', root), input = $('input', root), list = $('.picker-list', root);
+  const ctl = {
+    render() {
+      const q = normAr(input.value);
+      const sel = selectedId();
+      const found = items().filter((it) => !q || matches(it, q));
+      list.innerHTML = found.length
+        ? found.map((it) => `<li role="option" tabindex="-1" data-pid="${it.id}" aria-selected="${it.id === sel}">${label(it)}</li>`).join('')
+        : '<li class="muted small" aria-disabled="true">لا يوجد اسم مطابق</li>';
+    },
+    open() {
+      panel.classList.remove('hidden');
+      btn.setAttribute('aria-expanded', 'true');
+      input.value = '';
+      ctl.render();
+      input.focus();
+    },
+    close() {
+      panel.classList.add('hidden');
+      btn.setAttribute('aria-expanded', 'false');
+    },
+  };
+  const choose = (id) => { ctl.close(); onChoose(items().find((x) => x.id === id)); };
+  btn.addEventListener('click', () => (panel.classList.contains('hidden') ? ctl.open() : ctl.close()));
+  input.addEventListener('input', ctl.render);
+  input.addEventListener('keydown', (e) => {
+    const first = $('[data-pid]', list);
+    if (e.key === 'Enter' && first) choose(Number(first.dataset.pid));
+    if (e.key === 'ArrowDown' && first) { e.preventDefault(); first.focus(); }
+  });
+  list.addEventListener('click', (e) => {
+    const li = e.target.closest('[data-pid]');
+    if (li) choose(Number(li.dataset.pid));
+  });
+  list.addEventListener('keydown', (e) => {
+    const li = e.target.closest('[data-pid]');
+    if (!li) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(Number(li.dataset.pid)); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); li.nextElementSibling?.focus(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); (li.previousElementSibling || input).focus(); }
+  });
+  document.addEventListener('click', (e) => { if (!root.contains(e.target)) ctl.close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') ctl.close(); });
+  return ctl;
+}
+
+/* المعلم: يُحفظ اختياره على الجهاز */
+makePicker({
+  root: $('#picker'),
+  items: () => state.info?.teachers || [],
+  selectedId: () => Number(lsGet(K.teacher)) || null,
+  matches: (t, q) => normAr(t.name).includes(q) || normAr(t.subject).includes(q),
+  label: (t) => `<span>${esc(t.name)}</span>${t.subject ? `<span class="muted small">${esc(t.subject)}</span>` : ''}`,
+  onChoose: (t) => {
+    lsSet(K.teacher, String(t.id));
+    renderPicker();
+    toast(`مرحباً ${t.name}`);
+  },
+});
+
 function renderPicker() {
   const teachers = state.info.teachers;
   $('#teacher-bar').classList.toggle('hidden', !teachers.length);
@@ -325,58 +383,19 @@ function renderPicker() {
   if (id && !t) { try { localStorage.removeItem(K.teacher); } catch { /* لا شيء */ } }
   $('#picker-value').textContent = t ? t.name : 'اختر اسمك';
   $('#picker-btn').classList.toggle('empty', !t);
-  filterPicker();
 }
 
-function filterPicker() {
-  const q = normAr($('#picker-search').value);
-  const id = Number(lsGet(K.teacher)) || null;
-  const list = state.info.teachers.filter((t) => !q || normAr(t.name).includes(q) || normAr(t.subject).includes(q));
-  $('#picker-list').innerHTML = list.length
-    ? list.map((t) => `<li role="option" tabindex="-1" data-tid="${t.id}" aria-selected="${t.id === id}"><span>${esc(t.name)}</span>${t.subject ? `<span class="muted small">${esc(t.subject)}</span>` : ''}</li>`).join('')
-    : '<li class="muted small" aria-disabled="true">لا يوجد اسم مطابق</li>';
-}
-
-function openPicker() {
-  $('#picker-panel').classList.remove('hidden');
-  $('#picker-btn').setAttribute('aria-expanded', 'true');
-  $('#picker-search').value = '';
-  filterPicker();
-  $('#picker-search').focus();
-}
-function closePicker() {
-  $('#picker-panel').classList.add('hidden');
-  $('#picker-btn').setAttribute('aria-expanded', 'false');
-}
-function chooseTeacher(id) {
-  lsSet(K.teacher, String(id));
-  renderPicker();
-  closePicker();
-  toast(`مرحباً ${state.info.teachers.find((t) => t.id === id)?.name || ''}`);
-}
-
-$('#picker-btn').addEventListener('click', () => ($('#picker-panel').classList.contains('hidden') ? openPicker() : closePicker()));
-$('#picker-search').addEventListener('input', filterPicker);
-$('#picker-search').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { const first = $('#picker-list [data-tid]'); if (first) chooseTeacher(Number(first.dataset.tid)); }
-  if (e.key === 'ArrowDown') { e.preventDefault(); $('#picker-list [data-tid]')?.focus(); }
+/* الطالب: اختيار من القائمة المنسدلة ثم تحديد الحالة مباشرة */
+makePicker({
+  root: $('#student-picker'),
+  items: () => state.students,
+  selectedId: () => null,
+  matches: (s, q) => normAr(s.name).includes(q),
+  label: (s) => `<span><span class="muted num">${state.students.indexOf(s) + 1}.</span> ${esc(s.name)}</span>${s.status ? `<span class="badge ${s.status}">${TYPE_LABEL[s.status]}</span>` : ''}`,
+  onChoose: (s) => openSheet(s),
 });
-$('#picker-list').addEventListener('click', (e) => {
-  const li = e.target.closest('[data-tid]');
-  if (li) chooseTeacher(Number(li.dataset.tid));
-});
-$('#picker-list').addEventListener('keydown', (e) => {
-  const li = e.target.closest('[data-tid]');
-  if (!li) return;
-  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseTeacher(Number(li.dataset.tid)); }
-  if (e.key === 'ArrowDown') { e.preventDefault(); li.nextElementSibling?.focus(); }
-  if (e.key === 'ArrowUp') { e.preventDefault(); (li.previousElementSibling || $('#picker-search')).focus(); }
-});
-document.addEventListener('click', (e) => { if (!e.target.closest('#picker')) closePicker(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePicker(); });
 
 $('#back-grades').addEventListener('click', () => history.back());
 $('#change-pick').addEventListener('click', () => { flush(); openGrade(state.grade); });
-$('#search').addEventListener('input', renderList);
 
 init();

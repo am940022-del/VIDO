@@ -73,11 +73,21 @@
         <div class="crumbs" id="crumbs"></div>
         <button class="btn btn-sm" id="change-pick" type="button">تغيير</button>
       </div>
-      <p class="muted small">الجميع حاضرون افتراضياً — اضغط فقط على حالة الغائب أو المتأخر أو الهارب. ضغطة أخرى تلغيها، والضغط على الاسم يضيف ملاحظة.</p>
+      <p class="muted small">الجميع حاضرون افتراضياً — اختر الطالب من القائمة المنسدلة أو اضغط الحالة بجانب اسمه مباشرة. ضغطة أخرى تلغيها.</p>
       <div class="sticky-tools">
-        <div class="search">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-          <input id="search" type="search" placeholder="ابحث باسم الطالب" autocomplete="off" aria-label="ابحث باسم الطالب">
+        <div class="picker" id="student-picker">
+          <button type="button" class="picker-btn" aria-haspopup="listbox" aria-expanded="false">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <span class="picker-value muted" style="font-weight:500">ابحث واختر الطالب</span>
+            <span class="picker-caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="picker-panel hidden">
+            <div class="search">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+              <input type="search" placeholder="اكتب اسم الطالب" autocomplete="off" aria-label="ابحث عن اسم الطالب">
+            </div>
+            <ul class="picker-list" role="listbox" aria-label="طلاب الشعبة"></ul>
+          </div>
         </div>
         <div class="row between" style="margin-top:12px">
           <div class="summary-bar" id="summary" style="margin:0"></div>
@@ -90,7 +100,7 @@
 
   <div id="sheet" class="sheet-backdrop hidden">
     <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-name">
-      <p class="muted small">حدد الحالة مع ملاحظة</p>
+      <p class="muted small">حدد حالة الطالب في هذه الحصة</p>
       <h3 id="sheet-name"></h3>
       <div class="choice-grid">
         <button class="choice absent" data-type="absent" type="button">غياب<small>لم يحضر</small></button>
