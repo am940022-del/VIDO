@@ -46,7 +46,7 @@ npm test           # اختبارات الـ API والعزل بين المدا�
 **2. على الخادم:**
 ```bash
 ssh root@<IP>
-git clone -b claude/student-attendance-platform-9sl3hj https://github.com/am940022-del/VIDO.git /opt/vido
+git clone -b main https://github.com/am940022-del/VIDO.git /opt/vido
 cd /opt/vido/attendance-platform && sudo bash deploy/install.sh
 ```
 اضغط Enter لقبول القيم المقترحة (النطاق `attendance.<نطاق إنتماء>`، المنطقة الزمنية `Asia/Muscat`، رمز الدولة `968`).
